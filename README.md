@@ -5,15 +5,9 @@ RetServe is a simple yet efficient retrieval service that handles text embedding
 
 ## Installation
 
-1. Create and activate conda environment:
-   ```bash
-   conda activate ur-hx
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+pip install -r requirements.txt
+```
 
 ## Configuration
 
