@@ -1,0 +1,3 @@
+# Logging Configuration
+level: "INFO"
+file: "logs/ret_serve.log"

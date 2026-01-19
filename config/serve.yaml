@@ -1,0 +1,18 @@
+# Serving Configuration
+server:
+  host: "0.0.0.0"
+  port: 8088
+  max_topk: 999
+
+index:
+  path: "./data/san_guo_yan_yi.index"
+  use_gpu: true  # Testing the fixed GPU implementation
+  gpu_ids: "5"
+
+data:
+  corpus_path: "./data/san_guo_yan_yi.jsonl"
+
+embedding:
+  url: "http://localhost:65504/v1"
+  model: "qwen-embedding"
+  api_key: "None"

@@ -1,0 +1,14 @@
+# Embedding Configuration
+model:
+  path: "./models/Qwen3-Embedding-0.6B/"
+  batch_size: 4
+  gpu_ids: "5"
+  pooling_method: "auto"
+  bettertransformer: false
+  model_warmup: false
+  trust_remote_code: true
+  device: "cuda"
+
+data:
+  corpus_path: "./data/san_guo_yan_yi.jsonl"
+  embedding_path: "./data/san_guo_yan_yi.npy"

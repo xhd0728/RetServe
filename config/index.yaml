@@ -1,0 +1,8 @@
+# Indexing Configuration
+index:
+  chunk_size: 50000
+  use_gpu: false  # Indexing always uses CPU for efficient saving
+
+data:
+  embedding_path: "./data/san_guo_yan_yi.npy"
+  index_path: "./data/san_guo_yan_yi.index"

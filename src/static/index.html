@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retrieval Service UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: #f0f2f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #1890ff;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .search-section {
+            padding: 30px;
+            background: #fafafa;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 15px;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: #1890ff;
+            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+        }
+
+        .form-group input[type="number"] {
+            width: 100px;
+            padding: 15px;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input[type="number"]:focus {
+            outline: none;
+            border-color: #1890ff;
+            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+        }
+
+        button {
+            padding: 15px 30px;
+            background: #1890ff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #40a9ff;
+            box-shadow: 0 4px 12px rgba(24, 144, 255, 0.35);
+        }
+
+        button:active {
+            background: #096dd9;
+        }
+
+        .results-section {
+            padding: 30px;
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .results-header h2 {
+            color: #333;
+            font-size: 1.8rem;
+            font-weight: 300;
+        }
+
+        .status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .status.loading {
+            background: #fff7e6;
+            color: #fa8c16;
+            border: 1px solid #ffe7ba;
+        }
+
+        .status.success {
+            background: #f6ffed;
+            color: #52c41a;
+            border: 1px solid #b7eb8f;
+        }
+
+        .status.error {
+            background: #fff1f0;
+            color: #ff4d4f;
+            border: 1px solid #ffccc7;
+        }
+
+        .result-card {
+            background: white;
+            border: 1px solid #d9d9d9;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .result-card:hover {
+            border-color: #1890ff;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .result-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1890ff;
+            margin-bottom: 5px;
+        }
+
+        .result-score {
+            background: #f0f5ff;
+            color: #1890ff;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            border: 1px solid #d6e4ff;
+        }
+
+        .result-text {
+            color: #555;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+
+        .result-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.9rem;
+            color: #888;
+        }
+
+        .empty-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+
+        .empty-results i {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .api-links {
+            background: #fafafa;
+            padding: 20px 30px;
+            border-top: 1px solid #d9d9d9;
+        }
+
+        .api-links h3 {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            color: #333;
+            font-weight: 300;
+        }
+
+        .api-links a {
+            display: inline-block;
+            margin-right: 15px;
+            margin-bottom: 10px;
+            padding: 8px 16px;
+            background: white;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            color: #1890ff;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .api-links a:hover {
+            background: #1890ff;
+            color: white;
+            border-color: #1890ff;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .search-form {
+                flex-direction: column;
+            }
+
+            .form-group {
+                width: 100%;
+            }
+
+            .form-group input[type="number"] {
+                width: 100%;
+            }
+
+            .results-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Test Retrieval Service</h1>
+            <p>Test Search Interface</p>
+        </div>
+
+        <div class="search-section">
+            <form id="searchForm" class="search-form">
+                <div class="form-group">
+                    <label for="query">Search Query</label>
+                    <input type="text" id="query" placeholder="Enter your search query..." required>
+                </div>
+                <div class="form-group">
+                    <label for="topk">Number of Results</label>
+                    <input type="number" id="topk" min="1" max="999" value="5" required>
+                </div>
+                <button type="submit">Search</button>
+            </form>
+        </div>
+
+        <div class="results-section">
+            <div class="results-header">
+                <h2>Search Results</h2>
+                <div id="status" class="status"></div>
+            </div>
+            <div id="results"></div>
+        </div>
+
+        <div class="api-links">
+            <h3>API Documentation</h3>
+            <a href="/docs" target="_blank">Swagger UI</a>
+            <a href="/redoc" target="_blank">ReDoc</a>
+            <a href="/health" target="_blank">Health Check</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('searchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const query = document.getElementById('query').value;
+            const topk = parseInt(document.getElementById('topk').value);
+            const resultsDiv = document.getElementById('results');
+            const statusDiv = document.getElementById('status');
+            
+            // Show loading status
+            statusDiv.textContent = 'Searching...';
+            statusDiv.className = 'status loading';
+            resultsDiv.innerHTML = '';
+            
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        queries: [query],
+                        topk: topk
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Show success status
+                statusDiv.textContent = `${data.scores[0].length} results found`;
+                statusDiv.className = 'status success';
+                
+                // Display results
+                if (data.contents && data.contents[0] && data.contents[0].length > 0) {
+                    data.contents[0].forEach((result, index) => {
+                        const score = data.scores[0][index];
+                        const resultCard = document.createElement('div');
+                        resultCard.className = 'result-card';
+                        
+                        // Extract content from either 'contents' or 'text' field
+                        const content = result.contents || result.text || 'No content';
+                        
+                        resultCard.innerHTML = `
+                            <div class="result-header">
+                                <div>
+                                    <div class="result-title">Result #${index + 1}</div>
+                                    <div class="result-text">${content.substring(0, 300)}${content.length > 300 ? '...' : ''}</div>
+                                </div>
+                                <div class="result-score">${score.toFixed(4)}</div>
+                            </div>
+                            <div class="result-meta">
+                                <span>ID: ${result.id}</span>
+                                ${result.title ? `<span>Title: ${result.title}</span>` : ''}
+                            </div>
+                        `;
+                        
+                        resultsDiv.appendChild(resultCard);
+                    });
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="empty-results">
+                            <i>🔍</i>
+                            <h3>No Results Found</h3>
+                            <p>Please try a different search term</p>
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                // Show error status
+                statusDiv.textContent = 'Search Failed';
+                statusDiv.className = 'status error';
+                
+                resultsDiv.innerHTML = `
+                    <div class="empty-results">
+                        <i>⚠️</i>
+                        <h3>Search Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                
+                console.error('Search error:', error);
+            }
+        });
+    </script>
+</body>
+</html>
