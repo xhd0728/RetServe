@@ -1,324 +1,389 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retrieval Service UI</title>
+    <title>RetServe - 智能检索</title>
     <style>
+        :root {
+            --bg-color: #f5f5f7;
+            --card-bg: #ffffff;
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --accent-color: #0071e3;
+            --accent-hover: #0077ed;
+            --border-radius: 18px;
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+            --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+            --transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         body {
-            background: #f0f2f5;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.5;
             min-height: 100vh;
-            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
+        .main-container {
+            width: 100%;
+            max-width: 980px;
+            padding: 80px 20px 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
+        /* Header Section */
         .header {
-            background: #1890ff;
-            color: white;
-            padding: 30px;
             text-align: center;
+            margin-bottom: 60px;
+            animation: fadeInDown 0.8s ease-out;
         }
 
         .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            font-weight: 300;
+            font-size: 48px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #1d1d1f 0%, #424245 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
 
         .header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
+            font-size: 21px;
+            color: var(--text-secondary);
+            font-weight: 400;
         }
 
-        .search-section {
-            padding: 30px;
-            background: #fafafa;
-        }
-
-        .search-form {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-            align-items: flex-end;
-        }
-
-        .form-group {
-            flex: 1;
-            min-width: 250px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        .form-group input[type="text"] {
+        /* Search Section */
+        .search-container {
             width: 100%;
-            padding: 15px;
-            border: 1px solid #d9d9d9;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: all 0.3s ease;
+            max-width: 680px;
+            position: relative;
+            z-index: 100;
+            margin-bottom: 50px;
+            animation: fadeInUp 0.8s ease-out 0.2s backwards;
         }
 
-        .form-group input[type="text"]:focus {
+        .search-box {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: var(--border-radius);
+            padding: 8px;
+            box-shadow: var(--shadow-md);
+            display: flex;
+            align-items: center;
+            transition: var(--transition);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .search-box:focus-within {
+            transform: scale(1.02);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+            background: #ffffff;
+        }
+
+        .search-icon {
+            width: 20px;
+            height: 20px;
+            margin-left: 16px;
+            color: var(--text-secondary);
+        }
+
+        .search-input {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 16px;
+            font-size: 17px;
+            color: var(--text-primary);
             outline: none;
-            border-color: #1890ff;
-            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
         }
 
-        .form-group input[type="number"] {
-            width: 100px;
-            padding: 15px;
-            border: 1px solid #d9d9d9;
-            border-radius: 8px;
-            font-size: 1rem;
-            transition: all 0.3s ease;
+        .search-input::placeholder {
+            color: #a1a1a6;
         }
 
-        .form-group input[type="number"]:focus {
+        .search-controls {
+            display: flex;
+            align-items: center;
+            padding-right: 8px;
+            gap: 12px;
+        }
+
+        .top-k-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: #f5f5f7;
+            border-radius: 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .top-k-input {
+            width: 40px;
+            border: none;
+            background: transparent;
+            font-size: 13px;
+            color: var(--text-primary);
+            text-align: center;
             outline: none;
-            border-color: #1890ff;
-            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+            font-weight: 600;
         }
 
-        button {
-            padding: 15px 30px;
-            background: #1890ff;
+        .search-btn {
+            background: var(--accent-color);
             color: white;
             border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: var(--transition);
         }
 
-        button:hover {
-            background: #40a9ff;
-            box-shadow: 0 4px 12px rgba(24, 144, 255, 0.35);
+        .search-btn:hover {
+            background: var(--accent-hover);
         }
 
-        button:active {
-            background: #096dd9;
+        .search-btn:active {
+            transform: scale(0.96);
         }
 
-        .results-section {
-            padding: 30px;
+        /* Results Section */
+        .results-container {
+            width: 100%;
+            display: grid;
+            gap: 24px;
+            animation: fadeInUp 0.8s ease-out 0.4s backwards;
         }
 
-        .results-header {
+        .results-info {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            padding: 0 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: var(--transition);
         }
 
-        .results-header h2 {
-            color: #333;
-            font-size: 1.8rem;
-            font-weight: 300;
-        }
-
-        .status {
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            font-weight: 600;
-        }
-
-        .status.loading {
-            background: #fff7e6;
-            color: #fa8c16;
-            border: 1px solid #ffe7ba;
-        }
-
-        .status.success {
-            background: #f6ffed;
-            color: #52c41a;
-            border: 1px solid #b7eb8f;
-        }
-
-        .status.error {
-            background: #fff1f0;
-            color: #ff4d4f;
-            border: 1px solid #ffccc7;
+        .results-info.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
 
         .result-card {
-            background: white;
-            border: 1px solid #d9d9d9;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 15px;
-            transition: all 0.3s ease;
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
+            border: 1px solid rgba(0, 0, 0, 0.02);
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideUpFade 0.5s ease-out forwards;
         }
 
         .result-card:hover {
-            border-color: #1890ff;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
         }
 
         .result-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         .result-title {
-            font-size: 1.2rem;
+            font-size: 17px;
             font-weight: 600;
-            color: #1890ff;
-            margin-bottom: 5px;
+            color: var(--text-primary);
+            margin-right: 16px;
         }
 
         .result-score {
-            background: #f0f5ff;
-            color: #1890ff;
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 0.9rem;
+            font-size: 12px;
             font-weight: 600;
-            border: 1px solid #d6e4ff;
+            color: var(--accent-color);
+            background: rgba(0, 113, 227, 0.1);
+            padding: 4px 10px;
+            border-radius: 20px;
+            white-space: nowrap;
         }
 
-        .result-text {
-            color: #555;
+        .result-content {
+            font-size: 15px;
+            color: #424245;
             line-height: 1.6;
-            margin-bottom: 10px;
+            margin-bottom: 16px;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .result-meta {
             display: flex;
-            gap: 15px;
-            font-size: 0.9rem;
-            color: #888;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-top: 1px solid #f5f5f7;
+            padding-top: 16px;
         }
 
-        .empty-results {
+        .result-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Empty State */
+        .empty-state {
             text-align: center;
-            padding: 60px 20px;
-            color: #888;
+            padding: 60px 0;
+            color: var(--text-secondary);
+            opacity: 0;
+            animation: fadeIn 0.5s ease-out forwards;
         }
 
-        .empty-results i {
-            font-size: 3rem;
-            margin-bottom: 20px;
-            opacity: 0.3;
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            display: block;
+            opacity: 0.5;
         }
 
-        .api-links {
-            background: #fafafa;
-            padding: 20px 30px;
-            border-top: 1px solid #d9d9d9;
-        }
-
-        .api-links h3 {
-            font-size: 1.2rem;
-            margin-bottom: 15px;
-            color: #333;
-            font-weight: 300;
+        /* Footer */
+        .footer {
+            margin-top: auto;
+            padding: 40px 0;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 12px;
         }
 
         .api-links a {
-            display: inline-block;
-            margin-right: 15px;
-            margin-bottom: 10px;
-            padding: 8px 16px;
-            background: white;
-            border: 1px solid #d9d9d9;
-            border-radius: 6px;
-            color: #1890ff;
+            color: var(--text-secondary);
             text-decoration: none;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
+            margin: 0 10px;
+            transition: color 0.2s;
         }
 
         .api-links a:hover {
-            background: #1890ff;
-            color: white;
-            border-color: #1890ff;
+            color: var(--accent-color);
         }
 
-        @media (max-width: 768px) {
-            body {
-                padding: 10px;
-            }
+        /* Animations */
+        @keyframes fadeInDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-            .search-form {
-                flex-direction: column;
-            }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-            .form-group {
-                width: 100%;
-            }
+        @keyframes slideUpFade {
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-            .form-group input[type="number"] {
-                width: 100%;
-            }
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
 
-            .results-header {
-                flex-direction: column;
-                gap: 15px;
-                align-items: flex-start;
-            }
+        /* Loading Spinner */
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading .spinner {
+            display: block;
+        }
+        
+        .loading span {
+            display: none;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>Test Retrieval Service</h1>
-            <p>Test Search Interface</p>
-        </div>
+    <div class="main-container">
+        <header class="header">
+            <h1>RetServe</h1>
+            <p>高性能向量检索服务</p>
+        </header>
 
-        <div class="search-section">
-            <form id="searchForm" class="search-form">
-                <div class="form-group">
-                    <label for="query">Search Query</label>
-                    <input type="text" id="query" placeholder="Enter your search query..." required>
+        <div class="search-container">
+            <form id="searchForm" class="search-box">
+                <svg class="search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input type="text" id="query" class="search-input" placeholder="搜索文档..." required autocomplete="off">
+                <div class="search-controls">
+                    <div class="top-k-wrapper">
+                        <span>Top K</span>
+                        <input type="number" id="topk" class="top-k-input" min="1" max="100" value="5">
+                    </div>
+                    <button type="submit" id="searchBtn" class="search-btn">
+                        <span>搜索</span>
+                        <div class="spinner"></div>
+                    </button>
                 </div>
-                <div class="form-group">
-                    <label for="topk">Number of Results</label>
-                    <input type="number" id="topk" min="1" max="999" value="5" required>
-                </div>
-                <button type="submit">Search</button>
             </form>
         </div>
 
-        <div class="results-section">
-            <div class="results-header">
-                <h2>Search Results</h2>
-                <div id="status" class="status"></div>
-            </div>
-            <div id="results"></div>
-        </div>
-
-        <div class="api-links">
-            <h3>API Documentation</h3>
-            <a href="/docs" target="_blank">Swagger UI</a>
-            <a href="/redoc" target="_blank">ReDoc</a>
-            <a href="/health" target="_blank">Health Check</a>
-        </div>
+        <div id="resultsInfo" class="results-info"></div>
+        <div id="results" class="results-container"></div>
     </div>
+
+    <footer class="footer">
+        <div class="api-links">
+            <a href="/docs" target="_blank">API 文档</a>
+            <span style="opacity: 0.3">|</span>
+            <a href="/redoc" target="_blank">ReDoc</a>
+            <span style="opacity: 0.3">|</span>
+            <a href="/health" target="_blank">系统状态</a>
+        </div>
+        <p style="margin-top: 12px; opacity: 0.6;">&copy; 2026 RetServe System. All rights reserved.</p>
+    </footer>
 
     <script>
         document.getElementById('searchForm').addEventListener('submit', async (e) => {
@@ -326,86 +391,82 @@
             
             const query = document.getElementById('query').value;
             const topk = parseInt(document.getElementById('topk').value);
+            const searchBtn = document.getElementById('searchBtn');
             const resultsDiv = document.getElementById('results');
-            const statusDiv = document.getElementById('status');
+            const resultsInfo = document.getElementById('resultsInfo');
             
-            // Show loading status
-            statusDiv.textContent = 'Searching...';
-            statusDiv.className = 'status loading';
+            // UI Loading State
+            searchBtn.classList.add('loading');
+            searchBtn.disabled = true;
             resultsDiv.innerHTML = '';
+            resultsInfo.classList.remove('visible');
             
             try {
+                const startTime = performance.now();
                 const response = await fetch('/search', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        queries: [query],
-                        topk: topk
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ queries: [query], topk: topk })
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 
                 const data = await response.json();
+                const endTime = performance.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(3);
                 
-                // Show success status
-                statusDiv.textContent = `${data.scores[0].length} results found`;
-                statusDiv.className = 'status success';
+                // Show results info
+                const count = data.scores[0]?.length || 0;
+                resultsInfo.innerHTML = `找到 ${count} 个相关结果 <span style="margin-left: 10px; opacity: 0.7">耗时 ${duration}s</span>`;
+                resultsInfo.classList.add('visible');
                 
-                // Display results
                 if (data.contents && data.contents[0] && data.contents[0].length > 0) {
                     data.contents[0].forEach((result, index) => {
                         const score = data.scores[0][index];
-                        const resultCard = document.createElement('div');
-                        resultCard.className = 'result-card';
+                        const content = result.contents || result.text || '暂无内容';
+                        const title = result.title || `文档 #${result.id}`;
                         
-                        // Extract content from either 'contents' or 'text' field
-                        const content = result.contents || result.text || 'No content';
+                        // Stagger animation delay
+                        const delay = index * 0.1;
                         
-                        resultCard.innerHTML = `
+                        const card = document.createElement('div');
+                        card.className = 'result-card';
+                        card.style.animationDelay = `${delay}s`;
+                        
+                        card.innerHTML = `
                             <div class="result-header">
-                                <div>
-                                    <div class="result-title">Result #${index + 1}</div>
-                                    <div class="result-text">${content.substring(0, 300)}${content.length > 300 ? '...' : ''}</div>
-                                </div>
-                                <div class="result-score">${score.toFixed(4)}</div>
+                                <div class="result-title">${title}</div>
+                                <div class="result-score">相似度: ${score.toFixed(4)}</div>
                             </div>
+                            <div class="result-content" title="${content.replace(/"/g, '&quot;')}">${content}</div>
                             <div class="result-meta">
                                 <span>ID: ${result.id}</span>
-                                ${result.title ? `<span>Title: ${result.title}</span>` : ''}
                             </div>
                         `;
                         
-                        resultsDiv.appendChild(resultCard);
+                        resultsDiv.appendChild(card);
                     });
                 } else {
                     resultsDiv.innerHTML = `
-                        <div class="empty-results">
-                            <i>🔍</i>
-                            <h3>No Results Found</h3>
-                            <p>Please try a different search term</p>
+                        <div class="empty-state">
+                            <span class="empty-icon">🔍</span>
+                            <h3>未找到相关结果</h3>
+                            <p>请尝试更换关键词或减少搜索条件</p>
                         </div>
                     `;
                 }
                 
             } catch (error) {
-                // Show error status
-                statusDiv.textContent = 'Search Failed';
-                statusDiv.className = 'status error';
-                
                 resultsDiv.innerHTML = `
-                    <div class="empty-results">
-                        <i>⚠️</i>
-                        <h3>Search Error</h3>
+                    <div class="empty-state" style="color: #ff3b30;">
+                        <span class="empty-icon">⚠️</span>
+                        <h3>搜索请求失败</h3>
                         <p>${error.message}</p>
                     </div>
                 `;
-                
-                console.error('Search error:', error);
+            } finally {
+                searchBtn.classList.remove('loading');
+                searchBtn.disabled = false;
             }
         });
     </script>
