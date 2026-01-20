@@ -1,150 +1,387 @@
+"""
+FAISS index builder for vector similarity search.
+
+This module provides functionality for building and saving FAISS indices
+from embedding vectors, supporting efficient batch processing.
+"""
+
+from __future__ import annotations
+
+import argparse
 import os
+from pathlib import Path
+from typing import Any
+
 import faiss
 import numpy as np
 from tqdm import tqdm
-import argparse
-from typing import Dict, Any, Optional
+
 from src.config_loader import config_loader
-from src.logging import logger
+from src.decorators import log_execution, measure_time
+from src.logging import get_logger
+from src.settings import IndexBuildSettings
+
+# Module logger
+logger = get_logger(__name__)
 
 
-class IndexBuilder:
-    """FAISS index builder for embeddings"""
+# =============================================================================
+# Embedding Loader
+# =============================================================================
+
+class EmbeddingLoader:
+    """
+    Loader for embedding arrays from disk.
     
-    def __init__(self, config: Dict[str, Any]):
+    This class handles loading pre-computed embeddings from numpy files.
+    
+    Attributes:
+        file_path: Path to the embeddings file.
+    """
+    
+    def __init__(self, file_path: str | Path) -> None:
         """
-        Initialize index builder
+        Initialize the embedding loader.
         
         Args:
-            config: Configuration dictionary
+            file_path: Path to the numpy embeddings file.
         """
-        self.index_config = config["index"]
-        self.data_config = config["data"]
+        self._file_path = Path(file_path)
+        
+        logger.info(f"Initialized EmbeddingLoader with path={self._file_path}")
     
-    def load_embeddings(self) -> np.ndarray:
+    @property
+    def file_path(self) -> Path:
+        """Get the embeddings file path."""
+        return self._file_path
+    
+    @log_execution()
+    def load(self) -> np.ndarray:
         """
-        Load embeddings from numpy file
+        Load embeddings from disk.
         
         Returns:
-            Embeddings as numpy array
+            Embedding array with shape (num_docs, dimension).
+            
+        Raises:
+            FileNotFoundError: If the embeddings file does not exist.
         """
-        logger.info(f"Loading embeddings from {self.data_config['embedding_path']}")
-        embedding = np.load(self.data_config["embedding_path"])
-        logger.info(f"Loaded embeddings of shape {embedding.shape}")
-        return embedding
+        if not self._file_path.exists():
+            raise FileNotFoundError(f"Embeddings file not found: {self._file_path}")
+        
+        logger.info(f"Loading embeddings from {self._file_path}")
+        
+        embeddings = np.load(self._file_path)
+        
+        logger.info(
+            f"Loaded embeddings: shape={embeddings.shape}, dtype={embeddings.dtype}"
+        )
+        
+        return embeddings
+
+
+# =============================================================================
+# FAISS Index Builder
+# =============================================================================
+
+class FAISSIndexBuilder:
+    """
+    Builder for FAISS vector indices.
     
-    def build_index(self, embedding: np.ndarray) -> faiss.Index:
+    This class handles the construction of FAISS indices from embedding
+    vectors with support for batch processing and progress tracking.
+    
+    Attributes:
+        chunk_size: Number of vectors to add per batch.
+        use_inner_product: Whether to use inner product (True) or L2 (False).
+    """
+    
+    def __init__(
+        self,
+        chunk_size: int = 50000,
+        use_inner_product: bool = True,
+    ) -> None:
         """
-        Build FAISS index from embeddings
+        Initialize the index builder.
         
         Args:
-            embedding: Embeddings to index
+            chunk_size: Number of vectors to add per batch.
+            use_inner_product: Whether to use inner product similarity.
+        """
+        self._chunk_size = chunk_size
+        self._use_inner_product = use_inner_product
+        
+        logger.info(
+            f"Initialized FAISSIndexBuilder: "
+            f"chunk_size={chunk_size}, use_inner_product={use_inner_product}"
+        )
+    
+    @property
+    def chunk_size(self) -> int:
+        """Get the chunk size."""
+        return self._chunk_size
+    
+    def _create_base_index(self, dimension: int) -> faiss.Index:
+        """
+        Create the base FAISS index.
+        
+        Args:
+            dimension: Vector dimension.
             
         Returns:
-            Built FAISS index (always CPU-based for efficient saving)
+            Base FAISS index (flat index).
         """
-        dim = embedding.shape[1]
-        vec_ids = np.arange(embedding.shape[0]).astype(np.int64)
-        
-        # Create CPU index
-        logger.info(f"Building FAISS index with dim={dim}")
-        cpu_flat = faiss.IndexFlatIP(dim)
-        cpu_index = faiss.IndexIDMap2(cpu_flat)
-        
-        total = embedding.shape[0]
-        logger.info(f"Indexing {total} vectors")
-        
-        with tqdm(
-            total=total,
-            desc="[faiss] Indexing: ",
-            unit="vec",
-        ) as pbar:
-            for start in range(0, total, self.index_config["chunk_size"]):
-                end = min(start + self.index_config["chunk_size"], total)
-                cpu_index.add_with_ids(embedding[start:end], vec_ids[start:end])
-                pbar.update(end - start)
-        
-        # Always return CPU index for efficient saving
-        return cpu_index
+        if self._use_inner_product:
+            # Inner product similarity (cosine similarity for normalized vectors)
+            return faiss.IndexFlatIP(dimension)
+        else:
+            # L2 distance
+            return faiss.IndexFlatL2(dimension)
     
-    def save_index(self, index: faiss.Index) -> None:
+    @measure_time()
+    @log_execution()
+    def build(self, embeddings: np.ndarray) -> faiss.Index:
         """
-        Save FAISS index to file
+        Build a FAISS index from embeddings.
         
         Args:
-            index: FAISS index to save
+            embeddings: Embedding vectors with shape (num_docs, dimension).
+            
+        Returns:
+            Built FAISS index with ID mapping.
         """
-        os.makedirs(os.path.dirname(self.data_config["index_path"]), exist_ok=True)
+        num_vectors, dimension = embeddings.shape
         
-        # Always try to convert to CPU index before saving
-        # This handles both GPU and CPU indices safely
+        logger.info(
+            f"Building FAISS index: num_vectors={num_vectors}, dimension={dimension}"
+        )
+        
+        # Create base index
+        base_index = self._create_base_index(dimension)
+        
+        # Wrap with ID mapping for direct document ID lookup
+        index = faiss.IndexIDMap2(base_index)
+        
+        # Generate vector IDs (sequential integers)
+        vector_ids = np.arange(num_vectors, dtype=np.int64)
+        
+        # Add vectors in chunks with progress bar
+        with tqdm(
+            total=num_vectors,
+            desc="[faiss] Indexing",
+            unit="vec",
+        ) as progress_bar:
+            for chunk_start in range(0, num_vectors, self._chunk_size):
+                chunk_end = min(chunk_start + self._chunk_size, num_vectors)
+                
+                chunk_embeddings = embeddings[chunk_start:chunk_end]
+                chunk_ids = vector_ids[chunk_start:chunk_end]
+                
+                index.add_with_ids(chunk_embeddings, chunk_ids)
+                
+                progress_bar.update(chunk_end - chunk_start)
+        
+        logger.info(f"Built index with {index.ntotal} vectors")
+        return index
+
+
+# =============================================================================
+# Index Saver
+# =============================================================================
+
+class IndexSaver:
+    """
+    Saver for FAISS indices.
+    
+    This class handles saving FAISS indices to disk, including
+    automatic GPU to CPU conversion when necessary.
+    """
+    
+    def __init__(self, output_path: str | Path) -> None:
+        """
+        Initialize the index saver.
+        
+        Args:
+            output_path: Path for saving the index.
+        """
+        self._output_path = Path(output_path)
+        
+        logger.info(f"Initialized IndexSaver with path={self._output_path}")
+    
+    @property
+    def output_path(self) -> Path:
+        """Get the output path."""
+        return self._output_path
+    
+    def _convert_to_cpu_if_needed(self, index: faiss.Index) -> faiss.Index:
+        """
+        Convert GPU index to CPU if necessary.
+        
+        Args:
+            index: FAISS index (CPU or GPU).
+            
+        Returns:
+            CPU FAISS index.
+        """
         try:
-            # First check if it's already a CPU index
-            if hasattr(index, 'index') and hasattr(index.index, '__class__'):
-                # This is likely a GpuIndex that wraps a CPU index
-                index = faiss.index_gpu_to_cpu(index)
-            elif hasattr(index, '__class__'):
-                # Check class name directly
-                class_name = index.__class__.__name__
-                if 'Gpu' in class_name:
-                    index = faiss.index_gpu_to_cpu(index)
-        except Exception as e:
-            logger.warning(f"Could not determine if index is GPU type: {e}")
+            # Check if it's a GPU index by class name
+            class_name = index.__class__.__name__
+            
+            if "Gpu" in class_name:
+                logger.info("Converting GPU index to CPU for saving")
+                return faiss.index_gpu_to_cpu(index)
+            
+            # Also check wrapped indices
+            if hasattr(index, "index"):
+                inner_class_name = index.index.__class__.__name__
+                if "Gpu" in inner_class_name:
+                    logger.info("Converting wrapped GPU index to CPU for saving")
+                    return faiss.index_gpu_to_cpu(index)
+                    
+        except Exception as exc:
+            logger.warning(f"Could not determine index type: {exc}")
             logger.info("Treating as CPU index")
         
-        faiss.write_index(index, self.data_config["index_path"])
-        logger.info(f"Saved index to {self.data_config['index_path']}")
+        return index
     
+    @log_execution()
+    def save(self, index: faiss.Index) -> None:
+        """
+        Save FAISS index to disk.
+        
+        Args:
+            index: FAISS index to save.
+        """
+        # Ensure output directory exists
+        self._output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Convert to CPU if needed (GPU indices cannot be saved directly)
+        cpu_index = self._convert_to_cpu_if_needed(index)
+        
+        # Save index
+        faiss.write_index(cpu_index, str(self._output_path))
+        
+        logger.info(
+            f"Saved index to {self._output_path} "
+            f"(ntotal={cpu_index.ntotal})"
+        )
+
+
+# =============================================================================
+# Index Build Pipeline
+# =============================================================================
+
+class IndexBuildPipeline:
+    """
+    Complete index building pipeline.
+    
+    This class orchestrates the full index building pipeline: loading
+    embeddings, building the index, and saving results.
+    
+    Attributes:
+        settings: Index building configuration settings.
+    """
+    
+    def __init__(self, settings: IndexBuildSettings) -> None:
+        """
+        Initialize the index build pipeline.
+        
+        Args:
+            settings: Index building configuration settings.
+        """
+        self._settings = settings
+        
+        # Initialize components
+        self._embedding_loader = EmbeddingLoader(settings.data.embedding_path)
+        
+        self._index_builder = FAISSIndexBuilder(
+            chunk_size=settings.index.chunk_size,
+            use_inner_product=True,  # Use cosine similarity
+        )
+        
+        self._index_saver = IndexSaver(settings.data.index_path)
+        
+        logger.info("Initialized IndexBuildPipeline")
+    
+    @property
+    def settings(self) -> IndexBuildSettings:
+        """Get the settings."""
+        return self._settings
+    
+    @measure_time()
+    @log_execution()
     def build(self) -> None:
         """
-        Main index building method
+        Execute the complete index building pipeline.
+        
+        This method loads embeddings, builds the index, and saves it.
+        
+        Raises:
+            Exception: If any step of the pipeline fails.
         """
         try:
-            # Load embeddings
-            embedding = self.load_embeddings()
+            # Step 1: Load embeddings
+            logger.info("Step 1/3: Loading embeddings")
+            embeddings = self._embedding_loader.load()
             
-            # Build index
-            faiss_index = self.build_index(embedding)
+            if embeddings.size == 0:
+                logger.warning("Embeddings are empty, nothing to index")
+                return
             
-            # Save index
-            self.save_index(faiss_index)
+            # Step 2: Build index
+            logger.info("Step 2/3: Building FAISS index")
+            index = self._index_builder.build(embeddings)
             
-            logger.info("Indexing process completed successfully")
+            # Step 3: Save index
+            logger.info("Step 3/3: Saving index")
+            self._index_saver.save(index)
             
-        except Exception as e:
-            logger.error(f"Error during indexing process: {str(e)}")
+            logger.info("Index building pipeline completed successfully")
+            
+        except Exception as exc:
+            logger.exception(f"Index building pipeline failed: {exc}")
             raise
 
 
-def parse_args() -> argparse.Namespace:
+# =============================================================================
+# Command Line Interface
+# =============================================================================
+
+def parse_arguments() -> argparse.Namespace:
     """
-    Parse command line arguments
+    Parse command line arguments.
     
     Returns:
-        Parsed arguments
+        Parsed argument namespace.
     """
-    parser = argparse.ArgumentParser(description="Corpus Indexing Tool")
-    parser.add_argument(
-        "--config", 
-        type=str, 
-        default="index", 
-        help="Configuration file name (without extension)"
+    parser = argparse.ArgumentParser(
+        description="FAISS Index Building Tool",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="index",
+        help="Configuration file name (without .yaml extension)",
+    )
+    
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     """
-    Main function
+    Main entry point for the index building tool.
     """
-    args = parse_args()
+    # Parse arguments
+    args = parse_arguments()
     
     # Load configuration
-    config = config_loader.load_config(args.config)
+    settings = config_loader.load_index_settings(args.config)
     
-    # Create and run index builder
-    builder = IndexBuilder(config)
-    builder.build()
+    # Create and run pipeline
+    pipeline = IndexBuildPipeline(settings)
+    pipeline.build()
 
 
 if __name__ == "__main__":

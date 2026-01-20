@@ -1,156 +1,420 @@
-from infinity_emb import EngineArgs, AsyncEngineArray
-from tqdm import tqdm
+"""
+Embedding processor for corpus vectorization.
+
+This module provides functionality for generating embeddings from text corpora
+using the infinity_emb library for efficient batch processing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import gc
+import os
+from pathlib import Path
+from typing import Any
+
 import jsonlines
 import numpy as np
-import os
-import gc
-import asyncio
-import argparse
-from typing import List, Dict, Any, Optional
+from infinity_emb import AsyncEngineArray, EngineArgs
+from tqdm import tqdm
+
 from src.config_loader import config_loader
-from src.logging import logger
+from src.decorators import log_execution, measure_time
+from src.logging import get_logger
+from src.settings import EmbedSettings
+
+# Module logger
+logger = get_logger(__name__)
 
 
-class EmbeddingProcessor:
-    """Embedding processor for text corpora"""
+# =============================================================================
+# Corpus Reader
+# =============================================================================
+
+class CorpusReader:
+    """
+    Reader for JSONL corpus files.
     
-    def __init__(self, config: Dict[str, Any]):
+    This class handles reading and extracting text content from
+    JSONL-formatted corpus files.
+    
+    Attributes:
+        file_path: Path to the corpus file.
+    """
+    
+    def __init__(self, file_path: str | Path) -> None:
         """
-        Initialize embedding processor
+        Initialize the corpus reader.
         
         Args:
-            config: Configuration dictionary
+            file_path: Path to the JSONL corpus file.
         """
-        self.model_config = config["model"]
-        self.data_config = config["data"]
+        self._file_path = Path(file_path)
+        
+        logger.info(f"Initialized CorpusReader with path={self._file_path}")
+    
+    @property
+    def file_path(self) -> Path:
+        """Get the corpus file path."""
+        return self._file_path
+    
+    @log_execution()
+    def read(self) -> list[str]:
+        """
+        Read text contents from the corpus file.
+        
+        Returns:
+            List of text content strings.
+            
+        Raises:
+            FileNotFoundError: If the corpus file does not exist.
+        """
+        if not self._file_path.exists():
+            raise FileNotFoundError(f"Corpus file not found: {self._file_path}")
+        
+        logger.info(f"Reading corpus from {self._file_path}")
+        
+        contents: list[str] = []
+        
+        with jsonlines.open(self._file_path, mode="r") as reader:
+            for item in reader:
+                content = item.get("contents", "")
+                if not isinstance(content, str):
+                    content = str(content)
+                contents.append(content)
+        
+        logger.info(f"Read {len(contents)} documents from corpus")
+        return contents
+
+
+# =============================================================================
+# Embedding Generator
+# =============================================================================
+
+class EmbeddingGenerator:
+    """
+    Generator for text embeddings using infinity_emb.
+    
+    This class provides efficient batch embedding generation with
+    GPU support and progress tracking.
+    
+    Attributes:
+        model_path: Path to the embedding model.
+        batch_size: Batch size for embedding generation.
+        device: Compute device (cuda/cpu).
+    """
+    
+    def __init__(
+        self,
+        model_path: str | Path,
+        batch_size: int = 4,
+        gpu_device_ids: str = "0",
+        pooling_method: str = "auto",
+        better_transformer: bool = False,
+        model_warmup: bool = False,
+        trust_remote_code: bool = True,
+        device: str = "cuda",
+    ) -> None:
+        """
+        Initialize the embedding generator.
+        
+        Args:
+            model_path: Path to the embedding model directory.
+            batch_size: Batch size for processing.
+            gpu_device_ids: Comma-separated GPU device IDs.
+            pooling_method: Pooling method for embeddings.
+            better_transformer: Whether to use BetterTransformer.
+            model_warmup: Whether to warm up the model.
+            trust_remote_code: Whether to trust remote code.
+            device: Compute device (cuda/cpu).
+        """
+        self._model_path = Path(model_path)
+        self._batch_size = batch_size
+        self._gpu_device_ids = gpu_device_ids
+        self._pooling_method = pooling_method
+        self._better_transformer = better_transformer
+        self._model_warmup = model_warmup
+        self._trust_remote_code = trust_remote_code
+        self._device = device
         
         # Set CUDA visible devices
-        os.environ["CUDA_VISIBLE_DEVICES"] = self.model_config["gpu_ids"]
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_device_ids
+        
+        logger.info(
+            f"Initialized EmbeddingGenerator: "
+            f"model={model_path}, batch_size={batch_size}, "
+            f"device={device}, gpu_ids={gpu_device_ids}"
+        )
     
-    async def load_corpus(self) -> List[str]:
+    @property
+    def model_path(self) -> Path:
+        """Get the model path."""
+        return self._model_path
+    
+    @property
+    def batch_size(self) -> int:
+        """Get the batch size."""
+        return self._batch_size
+    
+    @property
+    def effective_batch_size(self) -> int:
+        """Get the effective batch size considering GPU count."""
+        gpu_count = len(self._gpu_device_ids.split(","))
+        return self._batch_size * gpu_count
+    
+    def _create_engine_args(self) -> EngineArgs:
         """
-        Load corpus from JSONL file
+        Create engine arguments for infinity_emb.
         
         Returns:
-            List of text contents
+            Configured EngineArgs instance.
         """
-        logger.info(f"Loading corpus from {self.data_config['corpus_path']}")
-        contents = []
-        
-        with jsonlines.open(self.data_config["corpus_path"], mode="r") as reader:
-            for item in reader:
-                contents.append(item["contents"])
-        
-        logger.info(f"Loaded {len(contents)} documents from corpus")
-        return contents
+        return EngineArgs(
+            model_name_or_path=str(self._model_path),
+            batch_size=self._batch_size,
+            bettertransformer=self._better_transformer,
+            pooling_method=self._pooling_method,
+            device=self._device,
+            model_warmup=self._model_warmup,
+            trust_remote_code=self._trust_remote_code,
+        )
     
-    async def create_embeddings(self, data: List[str]) -> np.ndarray:
+    @measure_time()
+    @log_execution()
+    async def generate(self, texts: list[str]) -> np.ndarray:
         """
-        Create embeddings using infinity_emb
+        Generate embeddings for a list of texts.
         
         Args:
-            data: List of text strings
+            texts: List of text strings to embed.
             
         Returns:
-            Embeddings as numpy array
+            Embedding vectors with shape (len(texts), dimension).
         """
-        logger.info(f"Starting embedding with batch size {self.model_config['batch_size']}")
+        if not texts:
+            return np.array([], dtype=np.float32)
         
-        # Create engine arguments
-        engine_args = EngineArgs(
-            model_name_or_path=self.model_config["path"],
-            batch_size=self.model_config["batch_size"],
-            bettertransformer=self.model_config["bettertransformer"],
-            pooling_method=self.model_config["pooling_method"],
-            device=self.model_config["device"],
-            model_warmup=self.model_config["model_warmup"],
-            trust_remote_code=self.model_config["trust_remote_code"],
+        total_texts = len(texts)
+        effective_batch_size = self.effective_batch_size
+        
+        logger.info(
+            f"Generating embeddings for {total_texts} texts "
+            f"with effective batch size {effective_batch_size}"
         )
         
-        # Initialize model
-        model = AsyncEngineArray.from_args([engine_args])[0]
+        # Create engine
+        engine_args = self._create_engine_args()
+        engine = AsyncEngineArray.from_args([engine_args])[0]
         
-        embeddings = []
-        eff_bs = self.model_config["batch_size"] * len(self.model_config["gpu_ids"].split(","))
-        n = len(data)
+        embeddings: list[np.ndarray] = []
         
-        async with model:
-            with tqdm(total=n, desc="[infinity] Embedding: ") as pbar:
-                for i in range(0, n, eff_bs):
-                    chunk = data[i : i + eff_bs]
-                    vecs, _ = await model.embed(sentences=chunk)
-                    embeddings.extend(vecs)
-                    pbar.update(len(chunk))
+        async with engine:
+            with tqdm(
+                total=total_texts,
+                desc="[infinity] Embedding",
+                unit="doc",
+            ) as progress_bar:
+                for batch_start in range(0, total_texts, effective_batch_size):
+                    batch_end = min(batch_start + effective_batch_size, total_texts)
+                    batch_texts = texts[batch_start:batch_end]
+                    
+                    # Generate embeddings for batch
+                    batch_embeddings, _ = await engine.embed(sentences=batch_texts)
+                    embeddings.extend(batch_embeddings)
+                    
+                    progress_bar.update(len(batch_texts))
         
+        # Convert to numpy array
         embeddings_array = np.array(embeddings, dtype=np.float32)
-        logger.info(f"Created embeddings of shape {embeddings_array.shape}")
+        
+        logger.info(f"Generated embeddings with shape {embeddings_array.shape}")
         return embeddings_array
+
+
+# =============================================================================
+# Embedding Saver
+# =============================================================================
+
+class EmbeddingSaver:
+    """
+    Saver for embedding arrays.
     
-    def save_embeddings(self, embeddings: np.ndarray) -> None:
+    This class handles saving embeddings to disk in numpy format.
+    """
+    
+    def __init__(self, output_path: str | Path) -> None:
         """
-        Save embeddings to file
+        Initialize the embedding saver.
         
         Args:
-            embeddings: Embeddings to save
+            output_path: Path for saving embeddings.
         """
-        os.makedirs(os.path.dirname(self.data_config["embedding_path"]), exist_ok=True)
-        np.save(self.data_config["embedding_path"], embeddings)
-        logger.info(f"Saved embedding to {self.data_config['embedding_path']}")
+        self._output_path = Path(output_path)
+        
+        logger.info(f"Initialized EmbeddingSaver with path={self._output_path}")
     
+    @property
+    def output_path(self) -> Path:
+        """Get the output path."""
+        return self._output_path
+    
+    @log_execution()
+    def save(self, embeddings: np.ndarray) -> None:
+        """
+        Save embeddings to disk.
+        
+        Args:
+            embeddings: Embedding array to save.
+        """
+        # Ensure output directory exists
+        self._output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Save embeddings
+        np.save(self._output_path, embeddings)
+        
+        logger.info(
+            f"Saved embeddings to {self._output_path} "
+            f"(shape={embeddings.shape}, dtype={embeddings.dtype})"
+        )
+
+
+# =============================================================================
+# Embedding Processor
+# =============================================================================
+
+class EmbeddingProcessor:
+    """
+    Complete embedding pipeline processor.
+    
+    This class orchestrates the full embedding pipeline: reading corpus,
+    generating embeddings, and saving results.
+    
+    Attributes:
+        settings: Embedding configuration settings.
+    """
+    
+    def __init__(self, settings: EmbedSettings) -> None:
+        """
+        Initialize the embedding processor.
+        
+        Args:
+            settings: Embedding configuration settings.
+        """
+        self._settings = settings
+        
+        # Initialize components
+        self._corpus_reader = CorpusReader(settings.data.corpus_path)
+        
+        self._embedding_generator = EmbeddingGenerator(
+            model_path=settings.model.path,
+            batch_size=settings.model.batch_size,
+            gpu_device_ids=settings.model.gpu_device_ids,
+            pooling_method=settings.model.pooling_method,
+            better_transformer=settings.model.better_transformer,
+            model_warmup=settings.model.model_warmup,
+            trust_remote_code=settings.model.trust_remote_code,
+            device=settings.model.device,
+        )
+        
+        self._embedding_saver = EmbeddingSaver(settings.data.embedding_path)
+        
+        logger.info("Initialized EmbeddingProcessor")
+    
+    @property
+    def settings(self) -> EmbedSettings:
+        """Get the settings."""
+        return self._settings
+    
+    @measure_time()
+    @log_execution()
     async def process(self) -> None:
         """
-        Main processing method
+        Execute the complete embedding pipeline.
+        
+        This method reads the corpus, generates embeddings, saves them,
+        and performs cleanup.
+        
+        Raises:
+            Exception: If any step of the pipeline fails.
         """
         try:
-            # Load corpus
-            data = await self.load_corpus()
+            # Step 1: Read corpus
+            logger.info("Step 1/3: Reading corpus")
+            corpus_texts = self._corpus_reader.read()
             
-            # Create embeddings
-            embeddings = await self.create_embeddings(data)
+            if not corpus_texts:
+                logger.warning("Corpus is empty, nothing to process")
+                return
             
-            # Save embeddings
-            self.save_embeddings(embeddings)
+            # Step 2: Generate embeddings
+            logger.info("Step 2/3: Generating embeddings")
+            embeddings = await self._embedding_generator.generate(corpus_texts)
             
-            # Clean up resources
+            # Step 3: Save embeddings
+            logger.info("Step 3/3: Saving embeddings")
+            self._embedding_saver.save(embeddings)
+            
+            # Cleanup
+            logger.info("Cleaning up resources")
             del embeddings
+            del corpus_texts
             gc.collect()
-            logger.info("Embedding process completed successfully")
             
-        except Exception as e:
-            logger.error(f"Error during embedding process: {str(e)}")
+            logger.info("Embedding pipeline completed successfully")
+            
+        except Exception as exc:
+            logger.exception(f"Embedding pipeline failed: {exc}")
             raise
 
 
-def parse_args() -> argparse.Namespace:
+# =============================================================================
+# Command Line Interface
+# =============================================================================
+
+def parse_arguments() -> argparse.Namespace:
     """
-    Parse command line arguments
+    Parse command line arguments.
     
     Returns:
-        Parsed arguments
+        Parsed argument namespace.
     """
-    parser = argparse.ArgumentParser(description="Corpus Embedding Tool")
-    parser.add_argument(
-        "--config", 
-        type=str, 
-        default="embed", 
-        help="Configuration file name (without extension)"
+    parser = argparse.ArgumentParser(
+        description="Corpus Embedding Tool",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="embed",
+        help="Configuration file name (without .yaml extension)",
+    )
+    
     return parser.parse_args()
 
 
-async def main():
+async def async_main() -> None:
     """
-    Main function
+    Async main entry point.
     """
-    args = parse_args()
+    # Parse arguments
+    args = parse_arguments()
     
     # Load configuration
-    config = config_loader.load_config(args.config)
+    settings = config_loader.load_embed_settings(args.config)
     
-    # Create and run embedding processor
-    processor = EmbeddingProcessor(config)
+    # Create and run processor
+    processor = EmbeddingProcessor(settings)
     await processor.process()
 
 
+def main() -> None:
+    """
+    Main entry point for the embedding tool.
+    """
+    asyncio.run(async_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
