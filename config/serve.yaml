@@ -8,11 +8,18 @@ index:
   path: "./data/san_guo_yan_yi.index"
   use_gpu: true  # Testing the fixed GPU implementation
   gpu_ids: "5"
+  search_concurrency_limit: 128
 
 data:
   corpus_path: "./data/san_guo_yan_yi.jsonl"
 
 embedding:
-  url: "http://localhost:65504/v1"
-  model: "qwen-embedding"
+  url: "http://58.57.119.12:52010/v1"
+  model: "qwen3-embedding-0.6b"
   api_key: "None"
+  api_key_env: "RET_SERVE_EMBED_API_KEY"
+  batch_size: 128
+  concurrency_limit: 32
+  request_timeout: 60.0
+  max_retries: 2
+  normalize: true
