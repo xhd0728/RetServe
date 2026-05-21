@@ -1,13 +1,19 @@
 # Embedding Configuration
-model:
-  path: "./models/Qwen3-Embedding-0.6B/"
-  batch_size: 4
-  gpu_ids: "5"
-  pooling_method: "auto"
-  bettertransformer: false
-  model_warmup: false
-  trust_remote_code: true
-  device: "cuda"
+embedding:
+  url: "http://58.57.119.12:52010/v1"
+  model: "qwen3-embedding-0.6b"
+  api_key: "None"
+  api_key_env: "RET_SERVE_EMBED_API_KEY"
+  # Texts per embeddings API request. Increase until vLLM latency or memory
+  # stops improving.
+  batch_size: 128
+  # Concurrent API requests while encoding offline corpora.
+  concurrency_limit: 16
+  # Texts buffered before each incremental .npy write.
+  encode_batch_size: 4096
+  request_timeout: 120.0
+  max_retries: 2
+  normalize: true
 
 data:
   corpus_path: "./data/san_guo_yan_yi.jsonl"

@@ -2,27 +2,25 @@
 Embedding processor for corpus vectorization.
 
 This module provides functionality for generating embeddings from text corpora
-using the infinity_emb library for efficient batch processing.
+through an OpenAI-compatible embeddings API such as vLLM.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import gc
-import os
 from pathlib import Path
-from typing import Any
+from typing import Iterator
 
 import jsonlines
 import numpy as np
-from infinity_emb import AsyncEngineArray, EngineArgs
 from tqdm import tqdm
 
 from src.config_loader import config_loader
 from src.decorators import log_execution, measure_time
+from src.embedding_client import OpenAIEmbeddingClient
 from src.logging import get_logger
-from src.settings import EmbedSettings
+from src.settings import EmbedSettings, EmbeddingSettings
 
 # Module logger
 logger = get_logger(__name__)
@@ -60,222 +58,196 @@ class CorpusReader:
         return self._file_path
     
     @log_execution()
-    def read(self) -> list[str]:
+    def count(self) -> int:
         """
-        Read text contents from the corpus file.
-        
+        Count documents in the corpus file without loading them.
+
         Returns:
-            List of text content strings.
-            
+            Number of JSONL records.
+
         Raises:
             FileNotFoundError: If the corpus file does not exist.
         """
         if not self._file_path.exists():
             raise FileNotFoundError(f"Corpus file not found: {self._file_path}")
-        
-        logger.info(f"Reading corpus from {self._file_path}")
-        
-        contents: list[str] = []
-        
+
+        with open(self._file_path, "rb") as file:
+            total = sum(1 for _ in file)
+
+        logger.info(f"Counted {total} documents in corpus")
+        return total
+
+    def iter_batches(self, batch_size: int) -> Iterator[list[str]]:
+        """
+        Stream text contents from the corpus file in batches.
+
+        Args:
+            batch_size: Number of documents per yielded batch.
+
+        Yields:
+            Lists of text content strings.
+
+        Raises:
+            FileNotFoundError: If the corpus file does not exist.
+        """
+        if not self._file_path.exists():
+            raise FileNotFoundError(f"Corpus file not found: {self._file_path}")
+
+        batch: list[str] = []
         with jsonlines.open(self._file_path, mode="r") as reader:
             for item in reader:
                 content = item.get("contents", "")
                 if not isinstance(content, str):
                     content = str(content)
-                contents.append(content)
-        
-        logger.info(f"Read {len(contents)} documents from corpus")
-        return contents
+                batch.append(content)
+
+                if len(batch) >= batch_size:
+                    yield batch
+                    batch = []
+
+        if batch:
+            yield batch
 
 
-# =============================================================================
-# Embedding Generator
-# =============================================================================
-
-class EmbeddingGenerator:
+class OpenAIEmbeddingGenerator:
     """
-    Generator for text embeddings using infinity_emb.
-    
-    This class provides efficient batch embedding generation with
-    GPU support and progress tracking.
-    
-    Attributes:
-        model_path: Path to the embedding model.
-        batch_size: Batch size for embedding generation.
-        device: Compute device (cuda/cpu).
+    Streaming corpus encoder using an OpenAI-compatible embeddings API.
+
+    This generator is designed for large corpora: it counts the JSONL records,
+    streams texts in bounded batches, sends concurrent API requests through the
+    shared OpenAIEmbeddingClient, and writes directly to a .npy memmap.
     """
-    
-    def __init__(
-        self,
-        model_path: str | Path,
-        batch_size: int = 4,
-        gpu_device_ids: str = "0",
-        pooling_method: str = "auto",
-        better_transformer: bool = False,
-        model_warmup: bool = False,
-        trust_remote_code: bool = True,
-        device: str = "cuda",
-    ) -> None:
+
+    def __init__(self, settings: EmbeddingSettings) -> None:
         """
-        Initialize the embedding generator.
-        
+        Initialize the OpenAI-compatible generator.
+
         Args:
-            model_path: Path to the embedding model directory.
-            batch_size: Batch size for processing.
-            gpu_device_ids: Comma-separated GPU device IDs.
-            pooling_method: Pooling method for embeddings.
-            better_transformer: Whether to use BetterTransformer.
-            model_warmup: Whether to warm up the model.
-            trust_remote_code: Whether to trust remote code.
-            device: Compute device (cuda/cpu).
+            settings: Embedding API settings.
         """
-        self._model_path = Path(model_path)
-        self._batch_size = batch_size
-        self._gpu_device_ids = gpu_device_ids
-        self._pooling_method = pooling_method
-        self._better_transformer = better_transformer
-        self._model_warmup = model_warmup
-        self._trust_remote_code = trust_remote_code
-        self._device = device
-        
-        # Set CUDA visible devices
-        os.environ["CUDA_VISIBLE_DEVICES"] = gpu_device_ids
-        
+        self._settings = settings
+        self._stream_batch_size = (
+            settings.encode_batch_size
+            or settings.batch_size * settings.concurrency_limit * 4
+        )
+
         logger.info(
-            f"Initialized EmbeddingGenerator: "
-            f"model={model_path}, batch_size={batch_size}, "
-            f"device={device}, gpu_ids={gpu_device_ids}"
+            f"Initialized OpenAIEmbeddingGenerator: url={settings.base_url}, "
+            f"model={settings.model_name}, api_batch_size={settings.batch_size}, "
+            f"concurrency={settings.concurrency_limit}, "
+            f"stream_batch_size={self._stream_batch_size}, "
+            f"normalize={settings.normalize}"
         )
-    
-    @property
-    def model_path(self) -> Path:
-        """Get the model path."""
-        return self._model_path
-    
-    @property
-    def batch_size(self) -> int:
-        """Get the batch size."""
-        return self._batch_size
-    
-    @property
-    def effective_batch_size(self) -> int:
-        """Get the effective batch size considering GPU count."""
-        gpu_count = len(self._gpu_device_ids.split(","))
-        return self._batch_size * gpu_count
-    
-    def _create_engine_args(self) -> EngineArgs:
-        """
-        Create engine arguments for infinity_emb.
-        
-        Returns:
-            Configured EngineArgs instance.
-        """
-        return EngineArgs(
-            model_name_or_path=str(self._model_path),
-            batch_size=self._batch_size,
-            bettertransformer=self._better_transformer,
-            pooling_method=self._pooling_method,
-            device=self._device,
-            model_warmup=self._model_warmup,
-            trust_remote_code=self._trust_remote_code,
-        )
-    
+
     @measure_time()
     @log_execution()
-    async def generate(self, texts: list[str]) -> np.ndarray:
+    async def generate_to_file(
+        self,
+        corpus_reader: CorpusReader,
+        output_path: str | Path,
+    ) -> None:
         """
-        Generate embeddings for a list of texts.
-        
+        Generate embeddings and write them directly to a .npy file.
+
         Args:
-            texts: List of text strings to embed.
-            
-        Returns:
-            Embedding vectors with shape (len(texts), dimension).
+            corpus_reader: Streaming corpus reader.
+            output_path: Destination .npy path.
         """
-        if not texts:
-            return np.array([], dtype=np.float32)
-        
-        total_texts = len(texts)
-        effective_batch_size = self.effective_batch_size
-        
+        output_path = Path(output_path)
+        total_texts = corpus_reader.count()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = output_path.with_name(f"{output_path.name}.tmp")
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+        if total_texts == 0:
+            with open(tmp_path, "wb") as file:
+                np.save(file, np.empty((0, 0), dtype=np.float32))
+            tmp_path.replace(output_path)
+            logger.warning("Corpus is empty, saved empty embeddings array")
+            return
+
         logger.info(
-            f"Generating embeddings for {total_texts} texts "
-            f"with effective batch size {effective_batch_size}"
+            f"Generating {total_texts} embeddings via OpenAI-compatible API"
         )
-        
-        # Create engine
-        engine_args = self._create_engine_args()
-        engine = AsyncEngineArray.from_args([engine_args])[0]
-        
-        embeddings: list[np.ndarray] = []
-        
-        async with engine:
-            with tqdm(
-                total=total_texts,
-                desc="[infinity] Embedding",
-                unit="doc",
-            ) as progress_bar:
-                for batch_start in range(0, total_texts, effective_batch_size):
-                    batch_end = min(batch_start + effective_batch_size, total_texts)
-                    batch_texts = texts[batch_start:batch_end]
-                    
-                    # Generate embeddings for batch
-                    batch_embeddings, _ = await engine.embed(sentences=batch_texts)
-                    embeddings.extend(batch_embeddings)
-                    
-                    progress_bar.update(len(batch_texts))
-        
-        # Convert to numpy array
-        embeddings_array = np.array(embeddings, dtype=np.float32)
-        
-        logger.info(f"Generated embeddings with shape {embeddings_array.shape}")
-        return embeddings_array
 
+        output_array: np.memmap | None = None
+        offset = 0
 
-# =============================================================================
-# Embedding Saver
-# =============================================================================
+        try:
+            async with OpenAIEmbeddingClient(
+                base_url=self._settings.base_url,
+                model_name=self._settings.model_name,
+                api_key=self._settings.resolved_api_key,
+                batch_size=self._settings.batch_size,
+                concurrency_limit=self._settings.concurrency_limit,
+                request_timeout=self._settings.request_timeout,
+                max_retries=self._settings.max_retries,
+                normalize=self._settings.normalize,
+                dimensions=self._settings.dimensions,
+            ) as client:
+                with tqdm(
+                    total=total_texts,
+                    desc="[openai] Embedding",
+                    unit="doc",
+                ) as progress_bar:
+                    for batch_texts in corpus_reader.iter_batches(
+                        self._stream_batch_size
+                    ):
+                        batch_embeddings = await client.embed(batch_texts)
 
-class EmbeddingSaver:
-    """
-    Saver for embedding arrays.
-    
-    This class handles saving embeddings to disk in numpy format.
-    """
-    
-    def __init__(self, output_path: str | Path) -> None:
-        """
-        Initialize the embedding saver.
-        
-        Args:
-            output_path: Path for saving embeddings.
-        """
-        self._output_path = Path(output_path)
-        
-        logger.info(f"Initialized EmbeddingSaver with path={self._output_path}")
-    
-    @property
-    def output_path(self) -> Path:
-        """Get the output path."""
-        return self._output_path
-    
-    @log_execution()
-    def save(self, embeddings: np.ndarray) -> None:
-        """
-        Save embeddings to disk.
-        
-        Args:
-            embeddings: Embedding array to save.
-        """
-        # Ensure output directory exists
-        self._output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Save embeddings
-        np.save(self._output_path, embeddings)
-        
+                        if batch_embeddings.ndim != 2:
+                            raise RuntimeError(
+                                "Embedding API returned a non-matrix result: "
+                                f"shape={batch_embeddings.shape}"
+                            )
+
+                        batch_size = batch_embeddings.shape[0]
+                        if offset + batch_size > total_texts:
+                            raise RuntimeError(
+                                "Corpus changed while embedding: received more rows "
+                                f"than counted ({offset + batch_size} > {total_texts})"
+                            )
+
+                        if output_array is None:
+                            dimension = batch_embeddings.shape[1]
+                            output_array = np.lib.format.open_memmap(
+                                str(tmp_path),
+                                mode="w+",
+                                dtype=np.float32,
+                                shape=(total_texts, dimension),
+                            )
+                            logger.info(
+                                f"Created embedding memmap at {tmp_path}: "
+                                f"shape={(total_texts, dimension)}"
+                            )
+
+                        output_array[offset:offset + batch_size] = batch_embeddings
+                        offset += batch_size
+                        output_array.flush()
+                        progress_bar.update(batch_size)
+
+            if offset != total_texts:
+                raise RuntimeError(
+                    "Corpus changed while embedding: received fewer rows than counted "
+                    f"({offset} != {total_texts})"
+                )
+        except Exception:
+            if output_array is not None:
+                del output_array
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+
+        if output_array is not None:
+            output_array.flush()
+            del output_array
+
+        tmp_path.replace(output_path)
+
         logger.info(
-            f"Saved embeddings to {self._output_path} "
-            f"(shape={embeddings.shape}, dtype={embeddings.dtype})"
+            f"Generated and saved embeddings to {output_path} "
+            f"(rows={offset}, dtype=float32)"
         )
 
 
@@ -305,21 +277,9 @@ class EmbeddingProcessor:
         
         # Initialize components
         self._corpus_reader = CorpusReader(settings.data.corpus_path)
+        self._embedding_generator = OpenAIEmbeddingGenerator(settings.embedding)
         
-        self._embedding_generator = EmbeddingGenerator(
-            model_path=settings.model.path,
-            batch_size=settings.model.batch_size,
-            gpu_device_ids=settings.model.gpu_device_ids,
-            pooling_method=settings.model.pooling_method,
-            better_transformer=settings.model.better_transformer,
-            model_warmup=settings.model.model_warmup,
-            trust_remote_code=settings.model.trust_remote_code,
-            device=settings.model.device,
-        )
-        
-        self._embedding_saver = EmbeddingSaver(settings.data.embedding_path)
-        
-        logger.info("Initialized EmbeddingProcessor")
+        logger.info("Initialized OpenAI-only EmbeddingProcessor")
     
     @property
     def settings(self) -> EmbedSettings:
@@ -339,28 +299,11 @@ class EmbeddingProcessor:
             Exception: If any step of the pipeline fails.
         """
         try:
-            # Step 1: Read corpus
-            logger.info("Step 1/3: Reading corpus")
-            corpus_texts = self._corpus_reader.read()
-            
-            if not corpus_texts:
-                logger.warning("Corpus is empty, nothing to process")
-                return
-            
-            # Step 2: Generate embeddings
-            logger.info("Step 2/3: Generating embeddings")
-            embeddings = await self._embedding_generator.generate(corpus_texts)
-            
-            # Step 3: Save embeddings
-            logger.info("Step 3/3: Saving embeddings")
-            self._embedding_saver.save(embeddings)
-            
-            # Cleanup
-            logger.info("Cleaning up resources")
-            del embeddings
-            del corpus_texts
-            gc.collect()
-            
+            logger.info("Step 1/1: Streaming corpus embeddings")
+            await self._embedding_generator.generate_to_file(
+                corpus_reader=self._corpus_reader,
+                output_path=self._settings.data.embedding_path,
+            )
             logger.info("Embedding pipeline completed successfully")
             
         except Exception as exc:

@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -9,14 +8,16 @@ load_dotenv()
 
 class EmbeddingConfig(BaseSettings):
     """嵌入配置"""
-    model_path: str = "./models/Qwen3-Embedding-0.6B/"
-    batch_size: int = 4
-    gpu_ids: str = "5"
-    pooling_method: str = "auto"
-    bettertransformer: bool = False
-    model_warmup: bool = False
-    trust_remote_code: bool = True
-    device: str = "cuda"
+    url: str = "http://58.57.119.12:52010/v1"
+    model: str = "qwen3-embedding-0.6b"
+    api_key: str = "None"
+    api_key_env: str = "RET_SERVE_EMBED_API_KEY"
+    batch_size: int = 128
+    concurrency_limit: int = 16
+    encode_batch_size: int = 4096
+    request_timeout: float = 120.0
+    max_retries: int = 2
+    normalize: bool = True
     
     class Config:
         env_prefix = "EMB_"
@@ -35,10 +36,11 @@ class ServeConfig(BaseSettings):
     """服务配置"""
     faiss_index_path: str = "./data/san_guo_yan_yi.index"
     corpus_jsonl_path: str = "./data/san_guo_yan_yi.jsonl"
-    emb_url: str = "http://localhost:65504/v1"
-    emb_model: str = "qwen-embedding"
+    emb_url: str = "http://58.57.119.12:52010/v1"
+    emb_model: str = "qwen3-embedding-0.6b"
     max_topk: int = 999
     api_key: str = "None"
+    api_key_env: str = "RET_SERVE_EMBED_API_KEY"
     gpu_ids: str = "5"
     use_gpu: bool = True
     port: int = 8000

@@ -7,8 +7,9 @@ dictionary-based configs with type-safe, validated settings objects.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -56,6 +57,20 @@ class IndexSettings(BaseModel):
     use_gpu: bool = Field(default=False, description="Enable GPU acceleration")
     gpu_device_ids: str = Field(default="0", alias="gpu_ids", description="GPU device IDs")
     chunk_size: int = Field(default=50000, ge=1, description="Index building batch size")
+    mmap_embeddings: bool = Field(
+        default=True,
+        alias="mmap",
+        description="Memory-map embeddings while building the index",
+    )
+    normalize: bool = Field(
+        default=False,
+        description="L2-normalize vectors before adding them to an inner-product index",
+    )
+    search_concurrency_limit: int = Field(
+        default=128,
+        ge=1,
+        description="Maximum concurrent FAISS search calls for CPU indexes",
+    )
     
     @property
     def index_path(self) -> Path:
@@ -124,50 +139,60 @@ class EmbeddingSettings(BaseModel):
     base_url: str = Field(..., alias="url", description="Embedding API base URL")
     model_name: str = Field(..., alias="model", description="Embedding model name")
     api_key: str = Field(default="None", description="API key")
+    api_key_env: Optional[str] = Field(
+        default=None,
+        description="Environment variable that contains the API key",
+    )
+    batch_size: int = Field(default=16, ge=1, description="Texts per API request")
+    concurrency_limit: int = Field(
+        default=32,
+        ge=1,
+        description="Maximum concurrent embedding API requests",
+    )
+    request_timeout: float = Field(
+        default=60.0,
+        gt=0,
+        description="Embedding API request timeout in seconds",
+    )
+    max_retries: int = Field(
+        default=2,
+        ge=0,
+        description="Embedding API retry count",
+    )
+    normalize: bool = Field(
+        default=False,
+        description="L2-normalize returned embeddings",
+    )
+    dimensions: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional embedding dimensions request parameter",
+    )
+    encode_batch_size: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Texts per offline streaming write batch",
+    )
     
     model_config = {
         "populate_by_name": True,
         "extra": "ignore",
     }
 
-
-# =============================================================================
-# Model Settings (for embedding processor)
-# =============================================================================
-
-class ModelSettings(BaseModel):
-    """
-    Embedding model configuration for local processing.
-    
-    Attributes:
-        path: Path to the model directory.
-        batch_size: Batch size for embedding generation.
-        gpu_device_ids: Comma-separated GPU device IDs.
-        pooling_method: Pooling method for embeddings.
-        better_transformer: Whether to use BetterTransformer.
-        model_warmup: Whether to warm up the model.
-        trust_remote_code: Whether to trust remote code.
-        device: Device to run the model on.
-    """
-    
-    path: str = Field(..., description="Model directory path")
-    batch_size: int = Field(default=4, ge=1, description="Batch size")
-    gpu_device_ids: str = Field(default="0", alias="gpu_ids", description="GPU device IDs")
-    pooling_method: str = Field(default="auto", description="Pooling method")
-    better_transformer: bool = Field(default=False, alias="bettertransformer")
-    model_warmup: bool = Field(default=False, description="Warm up model")
-    trust_remote_code: bool = Field(default=True, description="Trust remote code")
-    device: str = Field(default="cuda", description="Compute device")
-    
     @property
-    def model_path(self) -> Path:
-        """Get model path as Path object."""
-        return Path(self.path)
-    
-    model_config = {
-        "populate_by_name": True,
-        "extra": "ignore",
-    }
+    def resolved_api_key(self) -> str:
+        """Resolve the API key from api_key_env first, then api_key."""
+        if self.api_key_env:
+            value = os.environ.get(self.api_key_env)
+            if value:
+                return value
+
+        if self.api_key.startswith("$"):
+            value = os.environ.get(self.api_key[1:])
+            if value:
+                return value
+
+        return self.api_key
 
 
 # =============================================================================
@@ -260,12 +285,12 @@ class EmbedSettings(BaseModel):
     Configuration for the embedding processor.
     
     Attributes:
-        model: Model configuration.
         data: Data file configuration.
+        embedding: OpenAI-compatible embedding API configuration.
     """
     
-    model: ModelSettings
     data: DataSettings
+    embedding: EmbeddingSettings
     
     @classmethod
     def from_dict(cls, config: dict[str, Any]) -> "EmbedSettings":
@@ -279,8 +304,8 @@ class EmbedSettings(BaseModel):
             EmbedSettings instance.
         """
         return cls(
-            model=ModelSettings(**config.get("model", {})),
             data=DataSettings(**config.get("data", {})),
+            embedding=EmbeddingSettings(**config.get("embedding", {})),
         )
     
     model_config = {

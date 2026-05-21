@@ -39,16 +39,20 @@ class EmbeddingLoader:
         file_path: Path to the embeddings file.
     """
     
-    def __init__(self, file_path: str | Path) -> None:
+    def __init__(self, file_path: str | Path, mmap: bool = True) -> None:
         """
         Initialize the embedding loader.
         
         Args:
             file_path: Path to the numpy embeddings file.
+            mmap: Whether to memory-map the array instead of loading it fully.
         """
         self._file_path = Path(file_path)
+        self._mmap = mmap
         
-        logger.info(f"Initialized EmbeddingLoader with path={self._file_path}")
+        logger.info(
+            f"Initialized EmbeddingLoader with path={self._file_path}, mmap={mmap}"
+        )
     
     @property
     def file_path(self) -> Path:
@@ -71,7 +75,10 @@ class EmbeddingLoader:
         
         logger.info(f"Loading embeddings from {self._file_path}")
         
-        embeddings = np.load(self._file_path)
+        embeddings = np.load(
+            self._file_path,
+            mmap_mode="r" if self._mmap else None,
+        )
         
         logger.info(
             f"Loaded embeddings: shape={embeddings.shape}, dtype={embeddings.dtype}"
@@ -100,6 +107,7 @@ class FAISSIndexBuilder:
         self,
         chunk_size: int = 50000,
         use_inner_product: bool = True,
+        normalize: bool = False,
     ) -> None:
         """
         Initialize the index builder.
@@ -107,13 +115,16 @@ class FAISSIndexBuilder:
         Args:
             chunk_size: Number of vectors to add per batch.
             use_inner_product: Whether to use inner product similarity.
+            normalize: Whether to L2-normalize vectors before adding.
         """
         self._chunk_size = chunk_size
         self._use_inner_product = use_inner_product
+        self._normalize = normalize
         
         logger.info(
             f"Initialized FAISSIndexBuilder: "
-            f"chunk_size={chunk_size}, use_inner_product={use_inner_product}"
+            f"chunk_size={chunk_size}, use_inner_product={use_inner_product}, "
+            f"normalize={normalize}"
         )
     
     @property
@@ -174,7 +185,19 @@ class FAISSIndexBuilder:
             for chunk_start in range(0, num_vectors, self._chunk_size):
                 chunk_end = min(chunk_start + self._chunk_size, num_vectors)
                 
-                chunk_embeddings = embeddings[chunk_start:chunk_end]
+                if self._normalize:
+                    chunk_embeddings = np.array(
+                        embeddings[chunk_start:chunk_end],
+                        dtype=np.float32,
+                        copy=True,
+                        order="C",
+                    )
+                    faiss.normalize_L2(chunk_embeddings)
+                else:
+                    chunk_embeddings = np.ascontiguousarray(
+                        embeddings[chunk_start:chunk_end],
+                        dtype=np.float32,
+                    )
                 chunk_ids = vector_ids[chunk_start:chunk_end]
                 
                 index.add_with_ids(chunk_embeddings, chunk_ids)
@@ -292,11 +315,15 @@ class IndexBuildPipeline:
         self._settings = settings
         
         # Initialize components
-        self._embedding_loader = EmbeddingLoader(settings.data.embedding_path)
+        self._embedding_loader = EmbeddingLoader(
+            settings.data.embedding_path,
+            mmap=settings.index.mmap_embeddings,
+        )
         
         self._index_builder = FAISSIndexBuilder(
             chunk_size=settings.index.chunk_size,
             use_inner_product=True,  # Use cosine similarity
+            normalize=settings.index.normalize,
         )
         
         self._index_saver = IndexSaver(settings.data.index_path)

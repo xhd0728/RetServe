@@ -12,7 +12,9 @@ import asyncio
 import functools
 import logging
 import time
-from typing import Any, Callable, ParamSpec, TypeVar
+from typing import Any, Callable, TypeVar
+
+from typing_extensions import ParamSpec
 
 # Type variables for generic decorators
 P = ParamSpec("P")

@@ -2,6 +2,9 @@
 index:
   chunk_size: 50000
   use_gpu: false  # Indexing always uses CPU for efficient saving
+  mmap: true
+  # Leave false when embeddings were already written with embedding.normalize=true.
+  normalize: false
 
 data:
   embedding_path: "./data/san_guo_yan_yi.npy"

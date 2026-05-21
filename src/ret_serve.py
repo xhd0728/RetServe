@@ -20,11 +20,11 @@ import orjson
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from openai import AsyncOpenAI
 from tqdm import tqdm
 
 from src.config_loader import config_loader
-from src.decorators import log_execution, measure_time, retry
+from src.decorators import log_execution, measure_time
+from src.embedding_client import OpenAIEmbeddingClient
 from src.logging import get_logger
 from src.protocols import EmbeddingClient, VectorIndex
 from src.settings import ServiceSettings
@@ -37,101 +37,6 @@ from src.types import (
 
 # Module logger
 logger = get_logger(__name__)
-
-
-# =============================================================================
-# Embedding Client Implementation
-# =============================================================================
-
-class OpenAIEmbeddingClient:
-    """
-    Embedding client using OpenAI-compatible API.
-    
-    This client generates embeddings using an external API endpoint
-    that follows the OpenAI embeddings API specification.
-    
-    Attributes:
-        model_name: Name of the embedding model to use.
-        batch_size: Maximum batch size for embedding requests.
-    """
-    
-    def __init__(
-        self,
-        base_url: str,
-        model_name: str,
-        api_key: str = "None",
-        batch_size: int = 16,
-        concurrency_limit: int = 32,
-    ) -> None:
-        """
-        Initialize the embedding client.
-        
-        Args:
-            base_url: Base URL of the embedding API.
-            model_name: Name of the embedding model.
-            api_key: API key for authentication.
-            batch_size: Maximum batch size for embedding requests.
-            concurrency_limit: Maximum concurrent embedding requests.
-        """
-        self._client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-        self._model_name = model_name
-        self._batch_size = batch_size
-        self._semaphore = asyncio.Semaphore(concurrency_limit)
-        
-        logger.info(
-            f"Initialized OpenAIEmbeddingClient with model={model_name}, "
-            f"batch_size={batch_size}, concurrency_limit={concurrency_limit}"
-        )
-    
-    @property
-    def model_name(self) -> str:
-        """Get the model name."""
-        return self._model_name
-    
-    @property
-    def batch_size(self) -> int:
-        """Get the batch size."""
-        return self._batch_size
-    
-    @measure_time(threshold_ms=100)
-    @retry(max_attempts=3, delay_seconds=1.0)
-    async def embed(self, texts: list[str]) -> np.ndarray:
-        """
-        Generate embeddings for a list of texts.
-        
-        Args:
-            texts: List of text strings to embed.
-            
-        Returns:
-            Embedding vectors with shape (len(texts), dimension).
-        """
-        async with self._semaphore:
-            if not texts:
-                return np.array([], dtype=np.float32)
-            
-            total_texts = len(texts)
-            all_embeddings: list[np.ndarray] = []
-            
-            logger.debug(f"Generating embeddings for {total_texts} texts")
-            
-            # Process in batches for memory efficiency
-            for batch_start in range(0, total_texts, self._batch_size):
-                batch_end = min(batch_start + self._batch_size, total_texts)
-                batch_texts = texts[batch_start:batch_end]
-                
-                response = await self._client.embeddings.create(
-                    model=self._model_name,
-                    input=batch_texts,
-                )
-                
-                # Extract embeddings from response
-                batch_embeddings = [
-                    np.array(item.embedding, dtype=np.float32)
-                    for item in response.data
-                ]
-                all_embeddings.extend(batch_embeddings)
-            
-            return np.vstack(all_embeddings)
 
 
 # =============================================================================
@@ -176,6 +81,7 @@ class FAISSVectorIndex:
         
         self._search_semaphore = asyncio.Semaphore(search_concurrency_limit)
         self._index: faiss.Index | None = None
+        self._gpu_resources: Any | None = None
         self._dimension: int = -1
         
         logger.info(
@@ -239,7 +145,7 @@ class FAISSVectorIndex:
             )
             
             # Initialize GPU resources
-            gpu_resources = faiss.StandardGpuResources()
+            self._gpu_resources = faiss.StandardGpuResources()
             logger.debug("GPU resources initialized")
             
             # Configure GPU options for performance
@@ -248,7 +154,7 @@ class FAISSVectorIndex:
             
             # Move index to GPU (device 0 relative to CUDA_VISIBLE_DEVICES)
             self._index = faiss.index_cpu_to_gpu(
-                gpu_resources, 0, self._index, gpu_options
+                self._gpu_resources, 0, self._index, gpu_options
             )
             
             logger.info("Index successfully moved to GPU")
@@ -257,6 +163,7 @@ class FAISSVectorIndex:
             logger.warning(f"Failed to move index to GPU: {exc}")
             logger.info("Falling back to CPU index")
             self._use_gpu = False
+            self._gpu_resources = None
             
             # Update semaphore for CPU mode (allow more concurrency)
             self._search_semaphore = asyncio.Semaphore(128)
@@ -384,8 +291,8 @@ class ServiceContainer:
     def __init__(
         self,
         settings: ServiceSettings,
-        embedding_client: OpenAIEmbeddingClient,
-        vector_index: FAISSVectorIndex,
+        embedding_client: EmbeddingClient,
+        vector_index: VectorIndex,
         corpus: list[Document],
     ) -> None:
         """
@@ -413,12 +320,12 @@ class ServiceContainer:
         return self._settings
     
     @property
-    def embedding_client(self) -> OpenAIEmbeddingClient:
+    def embedding_client(self) -> EmbeddingClient:
         """Get the embedding client."""
         return self._embedding_client
     
     @property
-    def vector_index(self) -> FAISSVectorIndex:
+    def vector_index(self) -> VectorIndex:
         """Get the vector index."""
         return self._vector_index
     
@@ -555,7 +462,13 @@ def initialize_service(settings: ServiceSettings) -> None:
     embedding_client = OpenAIEmbeddingClient(
         base_url=settings.embedding.base_url,
         model_name=settings.embedding.model_name,
-        api_key=settings.embedding.api_key,
+        api_key=settings.embedding.resolved_api_key,
+        batch_size=settings.embedding.batch_size,
+        concurrency_limit=settings.embedding.concurrency_limit,
+        request_timeout=settings.embedding.request_timeout,
+        max_retries=settings.embedding.max_retries,
+        normalize=settings.embedding.normalize,
+        dimensions=settings.embedding.dimensions,
     )
     
     # Create and load vector index
@@ -563,6 +476,7 @@ def initialize_service(settings: ServiceSettings) -> None:
         index_path=settings.index.path,
         use_gpu=settings.index.use_gpu,
         gpu_device_ids=settings.index.gpu_device_ids,
+        search_concurrency_limit=settings.index.search_concurrency_limit,
     )
     vector_index.load()
     
@@ -608,6 +522,10 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         initialize_service(settings)
         yield
         # Shutdown (cleanup if needed)
+        if _service_container is not None:
+            close_client = getattr(_service_container.embedding_client, "close", None)
+            if close_client is not None:
+                await close_client()
         logger.info("Shutting down retrieval service")
     
     app = FastAPI(
