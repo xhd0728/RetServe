@@ -51,6 +51,24 @@ Keep real API keys in environment variables:
 export RET_SERVE_EMBED_API_KEY="<api-key>"
 ```
 
+## vLLM Embedding Server
+
+RetServe only requires an OpenAI-compatible `/v1/embeddings` endpoint. If you want to serve one with vLLM, use one of the scripts below.
+
+Run vLLM directly:
+
+```bash
+bash scripts/serve_vllm_cli.sh
+```
+
+Run vLLM with Docker:
+
+```bash
+bash scripts/serve_vllm_docker.sh
+```
+
+Edit the placeholder model path in the script before running it. Both scripts expose the OpenAI-compatible server on port `8000` by default. Then set the RetServe embedding URL to `http://localhost:8000/v1`.
+
 ## Corpus Format
 
 RetServe expects JSONL, one document per line. The `contents` field is embedded and later split into `title` and `text`.
@@ -174,6 +192,9 @@ config/
   index.yaml
   serve.yaml
   log.yaml
+scripts/
+  serve_vllm_cli.sh
+  serve_vllm_docker.sh
 ```
 
 ## Notes

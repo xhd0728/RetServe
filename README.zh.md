@@ -51,6 +51,24 @@ GPU 包仍然可以跑 CPU 检索，并在 `index.use_gpu: true` 时支持把索
 export RET_SERVE_EMBED_API_KEY="<api-key>"
 ```
 
+## vLLM Embedding Server
+
+RetServe 只需要一个 OpenAI 兼容的 `/v1/embeddings` endpoint。如果你希望用 vLLM 启一个 embedding 服务，可以使用下面两个脚本。
+
+直接命令行启动 vLLM：
+
+```bash
+bash scripts/serve_vllm_cli.sh
+```
+
+Docker 启动 vLLM：
+
+```bash
+bash scripts/serve_vllm_docker.sh
+```
+
+运行脚本前先把脚本里的模型占位路径改成本地路径。两个脚本默认在 `8000` 端口暴露 OpenAI 兼容服务。然后将 RetServe 的 embedding URL 设置为 `http://localhost:8000/v1`。
+
 ## 语料格式
 
 RetServe 读取 JSONL，每行一个文档。`contents` 字段会被编码，并在服务返回时拆成 `title` 和 `text`。
@@ -174,6 +192,9 @@ config/
   index.yaml
   serve.yaml
   log.yaml
+scripts/
+  serve_vllm_cli.sh
+  serve_vllm_docker.sh
 ```
 
 ## 运行提示
