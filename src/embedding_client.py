@@ -172,12 +172,14 @@ class OpenAIEmbeddingClient:
         if not texts:
             return np.empty((0, 0), dtype=np.float32)
 
-        batches = [
-            texts[start:start + self._batch_size]
-            for start in range(0, len(texts), self._batch_size)
-        ]
+        if len(texts) <= self._batch_size:
+            return await self._embed_batch(texts)
+
         batch_arrays = await asyncio.gather(
-            *(self._embed_batch(batch) for batch in batches)
+            *(
+                self._embed_batch(texts[start:start + self._batch_size])
+                for start in range(0, len(texts), self._batch_size)
+            )
         )
 
         return np.vstack(batch_arrays)
