@@ -25,7 +25,7 @@ JSONL corpus -> /v1/embeddings -> .npy vectors -> FAISS index -> /search
 - **适合大语料**：流式读取 JSONL、批量请求 embedding、支持 mmap 建索引。
 - **服务路径清晰**：FastAPI 接口、FAISS 检索、可选 GPU 加载、可配置并发。
 - **配置类型化**：YAML 配置会解析为 Pydantic 模型，避免散乱字典。
-- **endpoint 可替换**：支持 vLLM、One API、New API，或任何兼容 `/v1/embeddings` 的服务。
+- **endpoint 可替换**：支持 vLLM，或任何兼容 `/v1/embeddings` 的服务。
 
 ## 安装
 
@@ -48,7 +48,7 @@ GPU 包仍然可以跑 CPU 检索，并在 `index.use_gpu: true` 时支持把索
 真实 API key 建议放在环境变量中：
 
 ```bash
-export RET_SERVE_EMBED_API_KEY="sk-..."
+export RET_SERVE_EMBED_API_KEY="<api-key>"
 ```
 
 ## 语料格式
@@ -56,8 +56,8 @@ export RET_SERVE_EMBED_API_KEY="sk-..."
 RetServe 读取 JSONL，每行一个文档。`contents` 字段会被编码，并在服务返回时拆成 `title` 和 `text`。
 
 ```jsonl
-{"id":"1","contents":"刘备\n刘备是三国时期蜀汉昭烈帝。"}
-{"id":"2","contents":"诸葛亮\n诸葛亮辅佐刘备，擅长谋略。"}
+{"id":"doc-001","contents":"Overview\nA short example document for retrieval."}
+{"id":"doc-002","contents":"Configuration\nA short example document for setup."}
 ```
 
 生成 embedding 后不要改变 JSONL 行顺序，因为 FAISS ID 会映射到语料行号。
@@ -115,7 +115,7 @@ embedding:
 ```bash
 curl http://localhost:8088/search \
   -H "Content-Type: application/json" \
-  -d '{"queries":["诸葛亮和刘备的关系"],"topk":3}'
+  -d '{"queries":["example retrieval query"],"topk":3}'
 ```
 
 响应结构：
@@ -125,10 +125,10 @@ curl http://localhost:8088/search \
   "contents": [
     [
       {
-        "id": "2",
-        "title": "诸葛亮",
-        "text": "诸葛亮辅佐刘备，擅长谋略。",
-        "contents": "诸葛亮\n诸葛亮辅佐刘备，擅长谋略。"
+        "id": "doc-001",
+        "title": "Overview",
+        "text": "A short example document for retrieval.",
+        "contents": "Overview\nA short example document for retrieval."
       }
     ]
   ],

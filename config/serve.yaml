@@ -5,16 +5,16 @@ server:
   max_topk: 999
 
 index:
-  path: "./data/san_guo_yan_yi.index"
-  use_gpu: true  # Testing the fixed GPU implementation
-  gpu_ids: "5"
+  path: "./data/example_faiss.index"
+  use_gpu: false
+  gpu_ids: "0"
   search_concurrency_limit: 128
 
 data:
-  corpus_path: "./data/san_guo_yan_yi.jsonl"
+  corpus_path: "./data/example_corpus.jsonl"
 
 embedding:
-  url: "http://58.57.119.12:52010/v1"
+  url: "http://localhost:8000/v1"
   model: "qwen3-embedding-0.6b"
   api_key: "None"
   api_key_env: "RET_SERVE_EMBED_API_KEY"

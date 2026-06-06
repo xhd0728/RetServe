@@ -123,9 +123,9 @@ def main():
         
         # Example queries
         test_queries = [
-            "三国时期刘备的主要事迹",
-            "诸葛亮草船借箭的故事",
-            "赤壁之战的背景和结果"
+            "example retrieval query",
+            "generic configuration question",
+            "sample operations checklist"
         ]
         
         # Perform searches

@@ -255,11 +255,11 @@ async def main():
     
     # Test queries
     test_queries = [
-        "三国时期刘备的主要事迹",
-        "诸葛亮草船借箭的故事",
-        "赤壁之战的背景和结果",
-        "关羽过五关斩六将的故事",
-        "曹操煮酒论英雄的典故"
+        "example retrieval query",
+        "generic configuration question",
+        "sample operations checklist",
+        "health endpoint behavior",
+        "index build workflow"
     ]
     
     try:
@@ -293,7 +293,7 @@ async def main():
         
         async with aiohttp.ClientSession() as session:
             # Test with topk exceeding the configured limit
-            query = "诸葛亮的主要事迹"
+            query = "example retrieval query"
             formatted_query = f"{tester.prompt_prefix}{query}"
             
             url = f"{tester.base_url}/search"

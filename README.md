@@ -25,7 +25,7 @@ JSONL corpus -> /v1/embeddings -> .npy vectors -> FAISS index -> /search
 - **Large-corpus friendly**: streaming JSONL reads, batched embedding requests, and memory-mapped index builds.
 - **Fast serving path**: FastAPI API surface, FAISS search, optional GPU index loading, and configurable concurrency.
 - **Typed configuration**: YAML config files are parsed into Pydantic models instead of ad hoc dictionaries.
-- **Portable endpoint support**: works with vLLM, One API, New API, or any `/v1/embeddings` compatible service.
+- **Portable endpoint support**: works with vLLM or any `/v1/embeddings` compatible service.
 
 ## Installation
 
@@ -48,7 +48,7 @@ The GPU package can still run CPU searches and enables GPU loading when `index.u
 Keep real API keys in environment variables:
 
 ```bash
-export RET_SERVE_EMBED_API_KEY="sk-..."
+export RET_SERVE_EMBED_API_KEY="<api-key>"
 ```
 
 ## Corpus Format
@@ -56,8 +56,8 @@ export RET_SERVE_EMBED_API_KEY="sk-..."
 RetServe expects JSONL, one document per line. The `contents` field is embedded and later split into `title` and `text`.
 
 ```jsonl
-{"id":"1","contents":"Liu Bei\nLiu Bei was the founding emperor of Shu Han."}
-{"id":"2","contents":"Zhuge Liang\nZhuge Liang assisted Liu Bei and is known for strategy."}
+{"id":"doc-001","contents":"Overview\nA short example document for retrieval."}
+{"id":"doc-002","contents":"Configuration\nA short example document for setup."}
 ```
 
 The JSONL row order must stay unchanged after embedding generation because FAISS IDs map to row positions.
@@ -115,7 +115,7 @@ Search request:
 ```bash
 curl http://localhost:8088/search \
   -H "Content-Type: application/json" \
-  -d '{"queries":["relationship between Liu Bei and Zhuge Liang"],"topk":3}'
+  -d '{"queries":["example retrieval query"],"topk":3}'
 ```
 
 Response shape:
@@ -125,10 +125,10 @@ Response shape:
   "contents": [
     [
       {
-        "id": "2",
-        "title": "Zhuge Liang",
-        "text": "Zhuge Liang assisted Liu Bei and is known for strategy.",
-        "contents": "Zhuge Liang\nZhuge Liang assisted Liu Bei and is known for strategy."
+        "id": "doc-001",
+        "title": "Overview",
+        "text": "A short example document for retrieval.",
+        "contents": "Overview\nA short example document for retrieval."
       }
     ]
   ],

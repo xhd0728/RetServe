@@ -1,0 +1,3 @@
+{"id": "doc-001", "doc_id": "example-corpus", "title": "Overview", "contents": "Overview\nA short example document that describes a generic retrieval service."}
+{"id": "doc-002", "doc_id": "example-corpus", "title": "Configuration", "contents": "Configuration\nA short example document about configuring embedding endpoints and indexes."}
+{"id": "doc-003", "doc_id": "example-corpus", "title": "Operations", "contents": "Operations\nA short example document about running health checks and search requests."}

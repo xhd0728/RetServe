@@ -231,16 +231,16 @@ async def main():
     
     # Test queries
     test_queries = [
-        "三国时期刘备的主要事迹",
-        "诸葛亮草船借箭的故事",
-        "赤壁之战的背景和结果",
-        "关羽过五关斩六将的故事",
-        "曹操煮酒论英雄的典故",
-        "诸葛亮空城计的背景",
-        "周瑜打黄盖的苦肉计",
-        "赵云单骑救主的故事",
-        "桃园三结义的人物",
-        "七擒孟获的过程"
+        "example retrieval query",
+        "generic configuration question",
+        "sample operations checklist",
+        "health endpoint behavior",
+        "index build workflow",
+        "embedding batch settings",
+        "service startup process",
+        "search response format",
+        "concurrency tuning notes",
+        "fallback runtime behavior"
     ]
     
     try:

@@ -7,5 +7,5 @@ index:
   normalize: false
 
 data:
-  embedding_path: "./data/san_guo_yan_yi.npy"
-  index_path: "./data/san_guo_yan_yi.index"
+  embedding_path: "./data/example_embeddings.npy"
+  index_path: "./data/example_faiss.index"

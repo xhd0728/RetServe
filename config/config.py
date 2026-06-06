@@ -8,7 +8,7 @@ load_dotenv()
 
 class EmbeddingConfig(BaseSettings):
     """嵌入配置"""
-    url: str = "http://58.57.119.12:52010/v1"
+    url: str = "http://localhost:8000/v1"
     model: str = "qwen3-embedding-0.6b"
     api_key: str = "None"
     api_key_env: str = "RET_SERVE_EMBED_API_KEY"
@@ -34,15 +34,15 @@ class IndexConfig(BaseSettings):
 
 class ServeConfig(BaseSettings):
     """服务配置"""
-    faiss_index_path: str = "./data/san_guo_yan_yi.index"
-    corpus_jsonl_path: str = "./data/san_guo_yan_yi.jsonl"
-    emb_url: str = "http://58.57.119.12:52010/v1"
+    faiss_index_path: str = "./data/example_faiss.index"
+    corpus_jsonl_path: str = "./data/example_corpus.jsonl"
+    emb_url: str = "http://localhost:8000/v1"
     emb_model: str = "qwen3-embedding-0.6b"
     max_topk: int = 999
     api_key: str = "None"
     api_key_env: str = "RET_SERVE_EMBED_API_KEY"
-    gpu_ids: str = "5"
-    use_gpu: bool = True
+    gpu_ids: str = "0"
+    use_gpu: bool = False
     port: int = 8000
     host: str = "0.0.0.0"
     
@@ -52,8 +52,8 @@ class ServeConfig(BaseSettings):
 
 class DataConfig(BaseSettings):
     """数据配置"""
-    corpus_path: str = "./data/san_guo_yan_yi.jsonl"
-    embedding_path: str = "./data/san_guo_yan_yi.npy"
+    corpus_path: str = "./data/example_corpus.jsonl"
+    embedding_path: str = "./data/example_embeddings.npy"
     
     class Config:
         env_prefix = "DATA_"
