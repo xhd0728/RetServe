@@ -1,5 +1,6 @@
 # Vector indexing
-faiss-cpu>=1.7.4
+faiss-gpu-cu12>=1.14.1.post1; sys_platform == "linux" and platform_machine == "x86_64"
+faiss-cpu>=1.14.2; sys_platform != "linux" or platform_machine != "x86_64"
 
 # Data processing
 numpy>=1.21.0

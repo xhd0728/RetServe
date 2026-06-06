@@ -33,6 +33,8 @@ JSONL corpus -> /v1/embeddings -> .npy vectors -> FAISS index -> /search
 uv sync
 ```
 
+FAISS is selected by platform. Linux x86_64 installs `faiss-gpu-cu12` for CUDA 12 servers; macOS, Windows, and non-x86 Linux install `faiss-cpu`.
+
 Or with regular pip as a fallback:
 
 ```bash
@@ -40,6 +42,8 @@ python -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
+
+The GPU package can still run CPU searches and enables GPU loading when `index.use_gpu: true`. The CPU package cannot use GPU acceleration. The PyPI CUDA 12 wheel resolves CUDA 12.x runtime packages, but the host still needs a compatible NVIDIA driver. macOS has no CUDA GPU path, and Windows GPU installs are not verified.
 
 Keep real API keys in environment variables:
 

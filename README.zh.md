@@ -33,6 +33,8 @@ JSONL corpus -> /v1/embeddings -> .npy vectors -> FAISS index -> /search
 uv sync
 ```
 
+FAISS 会按平台选择。Linux x86_64 会安装适合 CUDA 12 服务器的 `faiss-gpu-cu12`；macOS、Windows 和非 x86 Linux 会安装 `faiss-cpu`。
+
 也可以使用普通 pip 作为 fallback：
 
 ```bash
@@ -40,6 +42,8 @@ python -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
+
+GPU 包仍然可以跑 CPU 检索，并在 `index.use_gpu: true` 时支持把索引加载到 GPU。CPU 包不能使用 GPU 加速。PyPI 的 CUDA 12 wheel 会解析 CUDA 12.x runtime 依赖，但部署机仍需要兼容的 NVIDIA driver。macOS 没有 CUDA GPU 路径，Windows GPU 安装暂未验证。
 
 真实 API key 建议放在环境变量中：
 
