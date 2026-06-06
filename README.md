@@ -103,7 +103,6 @@ Open:
 - `GET /health`
 - `POST /search`
 - `GET /docs`
-- `GET /static/index.html`
 
 ## API
 

@@ -5,11 +5,9 @@ from __future__ import annotations
 import argparse
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
-from fastapi.staticfiles import StaticFiles
 
 from src.corpus import JSONLCorpusLoader
 from src.config_loader import config_loader
@@ -77,13 +75,10 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         lifespan=lifespan,
     )
     
-    static_directory = Path(__file__).with_name("static")
-    app.mount("/static", StaticFiles(directory=str(static_directory)), name="static")
-    
     @app.get("/", response_class=RedirectResponse)
-    async def redirect_to_ui() -> RedirectResponse:
-        """Redirect root path to the web UI."""
-        return RedirectResponse(url="/static/index.html")
+    async def redirect_to_docs() -> RedirectResponse:
+        """Redirect root path to the interactive API docs."""
+        return RedirectResponse(url="/docs")
     
     @app.get(
         "/health",
