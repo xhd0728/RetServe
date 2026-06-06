@@ -1,19 +1,25 @@
-<p align="center">
-  <img src="assets/logo.png" alt="RetServe logo" width="180">
-</p>
+<div align="center">
+  <img src="assets/logo.png" alt="RetServe logo" width="80%">
 
-# RetServe
+  <h1>RetServe</h1>
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python 3.10-3.12](https://img.shields.io/badge/python-3.10--3.12-blue.svg)
-![FastAPI](https://img.shields.io/badge/fastapi-0.100-green.svg)
-![FAISS](https://img.shields.io/badge/FAISS-vector_search-informational.svg)
-![Embeddings](https://img.shields.io/badge/embeddings-OpenAI--compatible-purple.svg)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
+  <p>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+    <img src="https://img.shields.io/badge/python-3.10--3.12-blue.svg" alt="Python 3.10-3.12">
+    <img src="https://img.shields.io/badge/fastapi-0.100-green.svg" alt="FastAPI">
+    <img src="https://img.shields.io/badge/FAISS-vector_search-informational.svg" alt="FAISS">
+    <img src="https://img.shields.io/badge/embeddings-OpenAI--compatible-purple.svg" alt="OpenAI-compatible embeddings">
+    <img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs welcome">
+  </p>
 
-**RetServe** is a compact retrieval service that turns a JSONL corpus into a FAISS-backed HTTP search API using any OpenAI-compatible embeddings endpoint.
+  <p>
+    <strong>RetServe</strong> is a compact retrieval service that turns a JSONL corpus into a FAISS-backed HTTP search API using any OpenAI-compatible embeddings endpoint.
+  </p>
 
-[English](README.md) | [简体中文](README.zh.md)
+  <p>
+    <a href="README.md">English</a> | <a href="README.zh.md">简体中文</a>
+  </p>
+</div>
 
 ```text
 JSONL corpus -> /v1/embeddings -> .npy vectors -> FAISS index -> /search
