@@ -9,8 +9,8 @@ from importlib.util import find_spec
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 
-from src.corpus import JSONLCorpusLoader
 from src.config_loader import config_loader
+from src.corpus import JSONLCorpusLoader
 from src.logging import get_logger
 from src.service_container import (
     ServiceContainer,
@@ -37,21 +37,17 @@ __all__ = [
 ]
 
 
-# =============================================================================
-# FastAPI Application Factory
-# =============================================================================
-
 def create_application(settings: ServiceSettings) -> FastAPI:
     """
     Create and configure the FastAPI application.
-    
+
     Args:
         settings: Service configuration settings.
-        
+
     Returns:
         Configured FastAPI application.
     """
-    
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Application lifespan manager."""
@@ -61,7 +57,7 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         finally:
             await close_service()
             logger.info("Shutting down retrieval service")
-    
+
     app = FastAPI(
         title="FAISS Retrieval Service",
         version="2.0.0",
@@ -74,12 +70,12 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         redoc_url="/redoc",
         lifespan=lifespan,
     )
-    
+
     @app.get("/", response_class=RedirectResponse)
     async def redirect_to_docs() -> RedirectResponse:
         """Redirect root path to the interactive API docs."""
         return RedirectResponse(url="/docs")
-    
+
     @app.get(
         "/health",
         response_model=HealthResponse,
@@ -91,7 +87,7 @@ def create_application(settings: ServiceSettings) -> FastAPI:
     ) -> HealthResponse:
         """
         Health check endpoint.
-        
+
         Returns service status and configuration information.
         """
         return HealthResponse(
@@ -102,7 +98,7 @@ def create_application(settings: ServiceSettings) -> FastAPI:
             embedding_model=container.settings.embedding.model_name,
             gpu_enabled=container.settings.index.use_gpu,
         )
-    
+
     @app.post(
         "/search",
         response_model=SearchResponse,
@@ -115,10 +111,10 @@ def create_application(settings: ServiceSettings) -> FastAPI:
     ) -> SearchResponse:
         """
         Perform vector similarity search.
-        
+
         Args:
             request: Search request with queries and top_k.
-            
+
         Returns:
             Search results with matched documents and scores.
         """
@@ -133,13 +129,9 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         except Exception as exc:
             logger.exception(f"Search error: {exc}")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-    
+
     return app
 
-
-# =============================================================================
-# Command Line Interface
-# =============================================================================
 
 def get_uvicorn_runtime_options() -> dict[str, str]:
     """Choose optional uvicorn runtimes only when they are installed."""
@@ -151,7 +143,7 @@ def get_uvicorn_runtime_options() -> dict[str, str]:
 def parse_arguments() -> argparse.Namespace:
     """
     Parse command line arguments.
-    
+
     Returns:
         Parsed argument namespace.
     """
@@ -159,14 +151,14 @@ def parse_arguments() -> argparse.Namespace:
         description="FAISS Retrieval Service",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    
+
     parser.add_argument(
         "--config",
         type=str,
         default="serve",
         help="Configuration file name (without .yaml extension)",
     )
-    
+
     return parser.parse_args()
 
 
@@ -175,19 +167,12 @@ def main() -> None:
     Main entry point for the retrieval service.
     """
     import uvicorn
-    
-    # Parse arguments
+
     args = parse_arguments()
-    
-    # Load configuration
     settings = config_loader.load_service_settings(args.config)
-    
-    # Create application
     app = create_application(settings)
-    
     runtime_options = get_uvicorn_runtime_options()
 
-    # Run server with optimized settings
     uvicorn.run(
         app=app,
         host=settings.server.host,

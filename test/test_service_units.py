@@ -105,20 +105,22 @@ class ServiceContainerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             response.contents,
-            [[
-                {
-                    "id": "doc-1",
-                    "title": "Title 1",
-                    "text": "Text 1",
-                    "contents": "Title 1\nText 1",
-                },
-                {
-                    "id": "doc-2",
-                    "title": "Title 2",
-                    "text": "Text 2",
-                    "contents": "Title 2\nText 2",
-                },
-            ]],
+            [
+                [
+                    {
+                        "id": "doc-1",
+                        "title": "Title 1",
+                        "text": "Text 1",
+                        "contents": "Title 1\nText 1",
+                    },
+                    {
+                        "id": "doc-2",
+                        "title": "Title 2",
+                        "text": "Text 2",
+                        "contents": "Title 2\nText 2",
+                    },
+                ]
+            ],
         )
         self.assertEqual(response.scores, [[0.9, 0.6]])
 

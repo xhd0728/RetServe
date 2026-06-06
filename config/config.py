@@ -1,13 +1,12 @@
-import os
-from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
-# 加载环境变量
 load_dotenv()
 
 
 class EmbeddingConfig(BaseSettings):
-    """嵌入配置"""
+    """Embedding pipeline configuration."""
+
     url: str = "http://localhost:8000/v1"
     model: str = "qwen3-embedding-0.6b"
     api_key: str = "None"
@@ -18,22 +17,24 @@ class EmbeddingConfig(BaseSettings):
     request_timeout: float = 120.0
     max_retries: int = 2
     normalize: bool = True
-    
+
     class Config:
         env_prefix = "EMB_"
 
 
 class IndexConfig(BaseSettings):
-    """索引配置"""
+    """Index building configuration."""
+
     index_chunk_size: int = 50000
     faiss_use_gpu: bool = True
-    
+
     class Config:
         env_prefix = "INDEX_"
 
 
 class ServeConfig(BaseSettings):
-    """服务配置"""
+    """Retrieval service configuration."""
+
     faiss_index_path: str = "./data/example_faiss.index"
     corpus_jsonl_path: str = "./data/example_corpus.jsonl"
     emb_url: str = "http://localhost:8000/v1"
@@ -45,30 +46,31 @@ class ServeConfig(BaseSettings):
     use_gpu: bool = False
     port: int = 8000
     host: str = "0.0.0.0"
-    
+
     class Config:
         env_prefix = "SERVE_"
 
 
 class DataConfig(BaseSettings):
-    """数据配置"""
+    """Data file configuration."""
+
     corpus_path: str = "./data/example_corpus.jsonl"
     embedding_path: str = "./data/example_embeddings.npy"
-    
+
     class Config:
         env_prefix = "DATA_"
 
 
 class LogConfig(BaseSettings):
-    """日志配置"""
+    """Logging configuration."""
+
     level: str = "INFO"
     file: str = "logs/ret_serve.log"
-    
+
     class Config:
         env_prefix = "LOG_"
 
 
-# 创建全局配置实例
 emb_config = EmbeddingConfig()
 index_config = IndexConfig()
 serve_config = ServeConfig()

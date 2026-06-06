@@ -20,43 +20,38 @@ from src.config_loader import config_loader
 from src.decorators import log_execution, measure_time
 from src.embedding_client import OpenAIEmbeddingClient
 from src.logging import get_logger
-from src.settings import EmbedSettings, EmbeddingSettings
+from src.settings import EmbeddingSettings, EmbedSettings
 
-# Module logger
 logger = get_logger(__name__)
 
-
-# =============================================================================
-# Corpus Reader
-# =============================================================================
 
 class CorpusReader:
     """
     Reader for JSONL corpus files.
-    
+
     This class handles reading and extracting text content from
     JSONL-formatted corpus files.
-    
+
     Attributes:
         file_path: Path to the corpus file.
     """
-    
+
     def __init__(self, file_path: str | Path) -> None:
         """
         Initialize the corpus reader.
-        
+
         Args:
             file_path: Path to the JSONL corpus file.
         """
         self._file_path = Path(file_path)
-        
+
         logger.info(f"Initialized CorpusReader with path={self._file_path}")
-    
+
     @property
     def file_path(self) -> Path:
         """Get the corpus file path."""
         return self._file_path
-    
+
     @log_execution()
     def count(self) -> int:
         """
@@ -167,9 +162,7 @@ class OpenAIEmbeddingGenerator:
             logger.warning("Corpus is empty, saved empty embeddings array")
             return
 
-        logger.info(
-            f"Generating {total_texts} embeddings via OpenAI-compatible API"
-        )
+        logger.info(f"Generating {total_texts} embeddings via OpenAI-compatible API")
 
         output_array: np.memmap | None = None
         offset = 0
@@ -222,7 +215,7 @@ class OpenAIEmbeddingGenerator:
                                 f"shape={(total_texts, dimension)}"
                             )
 
-                        output_array[offset:offset + batch_size] = batch_embeddings
+                        output_array[offset : offset + batch_size] = batch_embeddings
                         offset += batch_size
                         output_array.flush()
                         progress_bar.update(batch_size)
@@ -251,50 +244,45 @@ class OpenAIEmbeddingGenerator:
         )
 
 
-# =============================================================================
-# Embedding Processor
-# =============================================================================
-
 class EmbeddingProcessor:
     """
     Complete embedding pipeline processor.
-    
+
     This class orchestrates the full embedding pipeline: reading corpus,
     generating embeddings, and saving results.
-    
+
     Attributes:
         settings: Embedding configuration settings.
     """
-    
+
     def __init__(self, settings: EmbedSettings) -> None:
         """
         Initialize the embedding processor.
-        
+
         Args:
             settings: Embedding configuration settings.
         """
         self._settings = settings
-        
-        # Initialize components
+
         self._corpus_reader = CorpusReader(settings.data.corpus_path)
         self._embedding_generator = OpenAIEmbeddingGenerator(settings.embedding)
-        
+
         logger.info("Initialized OpenAI-only EmbeddingProcessor")
-    
+
     @property
     def settings(self) -> EmbedSettings:
         """Get the settings."""
         return self._settings
-    
+
     @measure_time()
     @log_execution()
     async def process(self) -> None:
         """
         Execute the complete embedding pipeline.
-        
+
         This method reads the corpus, generates embeddings, saves them,
         and performs cleanup.
-        
+
         Raises:
             Exception: If any step of the pipeline fails.
         """
@@ -305,20 +293,16 @@ class EmbeddingProcessor:
                 output_path=self._settings.data.embedding_path,
             )
             logger.info("Embedding pipeline completed successfully")
-            
+
         except Exception as exc:
             logger.exception(f"Embedding pipeline failed: {exc}")
             raise
 
 
-# =============================================================================
-# Command Line Interface
-# =============================================================================
-
 def parse_arguments() -> argparse.Namespace:
     """
     Parse command line arguments.
-    
+
     Returns:
         Parsed argument namespace.
     """
@@ -326,14 +310,14 @@ def parse_arguments() -> argparse.Namespace:
         description="Corpus Embedding Tool",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    
+
     parser.add_argument(
         "--config",
         type=str,
         default="embed",
         help="Configuration file name (without .yaml extension)",
     )
-    
+
     return parser.parse_args()
 
 
@@ -341,13 +325,8 @@ async def async_main() -> None:
     """
     Async main entry point.
     """
-    # Parse arguments
     args = parse_arguments()
-    
-    # Load configuration
     settings = config_loader.load_embed_settings(args.config)
-    
-    # Create and run processor
     processor = EmbeddingProcessor(settings)
     await processor.process()
 

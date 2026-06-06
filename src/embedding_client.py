@@ -177,7 +177,7 @@ class OpenAIEmbeddingClient:
 
         batch_arrays = await asyncio.gather(
             *(
-                self._embed_batch(texts[start:start + self._batch_size])
+                self._embed_batch(texts[start : start + self._batch_size])
                 for start in range(0, len(texts), self._batch_size)
             )
         )

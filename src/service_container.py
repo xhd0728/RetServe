@@ -174,7 +174,9 @@ class ServiceContainer:
                     continue
 
                 if 0 <= document_index < corpus_size:
-                    current_contents.append(self._corpus_payloads[document_index].copy())
+                    current_contents.append(
+                        self._corpus_payloads[document_index].copy()
+                    )
                     current_scores.append(float(score))
 
             contents_batch.append(current_contents)
