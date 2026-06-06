@@ -1,6 +1,5 @@
 # Vector indexing
-faiss-gpu>=1.7.4; sys_platform != "darwin" or platform_machine != "arm64"
-faiss-cpu>=1.7.4; sys_platform == "darwin" and platform_machine == "arm64"
+faiss-cpu>=1.7.4
 
 # Data processing
 numpy>=1.21.0

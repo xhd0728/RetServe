@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import asynccontextmanager
+from importlib.util import find_spec
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -145,6 +146,13 @@ def create_application(settings: ServiceSettings) -> FastAPI:
 # Command Line Interface
 # =============================================================================
 
+def get_uvicorn_runtime_options() -> dict[str, str]:
+    """Choose optional uvicorn runtimes only when they are installed."""
+    loop = "uvloop" if find_spec("uvloop") is not None else "asyncio"
+    http = "httptools" if find_spec("httptools") is not None else "h11"
+    return {"loop": loop, "http": http}
+
+
 def parse_arguments() -> argparse.Namespace:
     """
     Parse command line arguments.
@@ -182,6 +190,8 @@ def main() -> None:
     # Create application
     app = create_application(settings)
     
+    runtime_options = get_uvicorn_runtime_options()
+
     # Run server with optimized settings
     uvicorn.run(
         app=app,
@@ -189,8 +199,8 @@ def main() -> None:
         port=settings.server.port,
         log_level="info",
         reload=False,
-        loop="uvloop",
-        http="httptools",
+        loop=runtime_options["loop"],
+        http=runtime_options["http"],
         timeout_keep_alive=30,
         backlog=1000,
     )

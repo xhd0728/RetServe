@@ -5,7 +5,7 @@
 # RetServe
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)
+![Python 3.10-3.12](https://img.shields.io/badge/python-3.10--3.12-blue.svg)
 ![FastAPI](https://img.shields.io/badge/fastapi-0.100-green.svg)
 ![FAISS](https://img.shields.io/badge/FAISS-vector_search-informational.svg)
 ![Embeddings](https://img.shields.io/badge/embeddings-OpenAI--compatible-purple.svg)
@@ -30,13 +30,14 @@ JSONL corpus -> /v1/embeddings -> .npy vectors -> FAISS index -> /search
 ## Installation
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
+uv sync
 ```
 
-Or with regular pip:
+Or with regular pip as a fallback:
 
 ```bash
+python -m venv .venv
+. .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
