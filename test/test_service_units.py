@@ -1,3 +1,4 @@
+import os
 import unittest
 from unittest.mock import patch
 
@@ -15,12 +16,18 @@ from src.types import Document
 
 
 class FakeEmbeddingClient:
-    def __init__(self, embeddings: np.ndarray) -> None:
+    def __init__(self, embeddings: np.ndarray | dict[str, np.ndarray]) -> None:
         self._embeddings = embeddings
         self.requests: list[list[str]] = []
 
     async def embed(self, texts: list[str]) -> np.ndarray:
         self.requests.append(list(texts))
+
+        if isinstance(self._embeddings, dict):
+            return np.vstack([self._embeddings[text] for text in texts]).astype(
+                np.float32
+            )
+
         return self._embeddings
 
 
@@ -59,12 +66,21 @@ class FakeVectorIndex:
         return self._distances[:, :top_k], self._indices[:, :top_k]
 
 
-def make_settings(max_top_k: int = 999) -> ServiceSettings:
+def make_settings(
+    query_cache_enabled: bool = False,
+    query_cache_size: int = 4096,
+    server: ServerSettings | None = None,
+) -> ServiceSettings:
     return ServiceSettings(
-        server=ServerSettings(max_top_k=max_top_k),
+        server=server or ServerSettings(),
         index=IndexSettings(path="unused.index"),
         data=DataSettings(corpus_path="unused.jsonl"),
-        embedding=EmbeddingSettings(url="http://example.test/v1", model="test-model"),
+        embedding=EmbeddingSettings(
+            url="http://example.test/v1",
+            model="test-model",
+            query_cache_enabled=query_cache_enabled,
+            query_cache_size=query_cache_size,
+        ),
     )
 
 
@@ -124,7 +140,9 @@ class ServiceContainerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.scores, [[0.9, 0.6]])
 
-    async def test_top_k_limited_and_vectors_cast_for_search(self) -> None:
+    async def test_top_k_limited_by_index_size_and_vectors_cast_for_search(
+        self,
+    ) -> None:
         embeddings = np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float64)[:, ::2]
         vector_index = FakeVectorIndex(
             dimension=2,
@@ -133,7 +151,7 @@ class ServiceContainerTests(unittest.IsolatedAsyncioTestCase):
             distances=np.array([[1.0, 0.5]]),
         )
         container = ServiceContainer(
-            settings=make_settings(max_top_k=3),
+            settings=make_settings(),
             embedding_client=FakeEmbeddingClient(embeddings),
             vector_index=vector_index,
             corpus=make_documents(),
@@ -147,6 +165,181 @@ class ServiceContainerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(vector_index.last_query_vectors.flags.c_contiguous)
         self.assertEqual(len(response.contents[0]), 2)
         self.assertEqual(response.scores, [[1.0, 0.5]])
+
+    async def test_legacy_top_k_cap_setting_does_not_limit_search(self) -> None:
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=4,
+            indices=np.array([[0, 1, -1]], dtype=np.int64),
+            distances=np.array([[1.0, 0.5, 0.0]]),
+        )
+        legacy_server_settings = ServerSettings(**{"max" + "_topk": 1})
+        container = ServiceContainer(
+            settings=make_settings(server=legacy_server_settings),
+            embedding_client=FakeEmbeddingClient(
+                np.array([[1.0, 2.0]], dtype=np.float32)
+            ),
+            vector_index=vector_index,
+            corpus=make_documents(),
+        )
+
+        response = await container.search(["query"], top_k=3)
+
+        self.assertEqual(vector_index.last_top_k, 3)
+        self.assertEqual(len(response.contents[0]), 2)
+
+    async def test_query_embedding_cache_reuses_repeated_query(self) -> None:
+        embedding_client = FakeEmbeddingClient(
+            {"query": np.array([1.0, 2.0], dtype=np.float32)}
+        )
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=2,
+            indices=np.array([[0], [1]], dtype=np.int64),
+            distances=np.array([[1.0], [0.5]]),
+        )
+        container = ServiceContainer(
+            settings=make_settings(query_cache_enabled=True, query_cache_size=4096),
+            embedding_client=embedding_client,
+            vector_index=vector_index,
+            corpus=make_documents(),
+        )
+
+        await container.search(["query"], top_k=1)
+        await container.search(["query"], top_k=1)
+
+        self.assertEqual(embedding_client.requests, [["query"]])
+
+    async def test_query_embedding_cache_preserves_batch_order(self) -> None:
+        embedding_client = FakeEmbeddingClient(
+            {
+                "b": np.array([2.0, 20.0], dtype=np.float32),
+                "a": np.array([1.0, 10.0], dtype=np.float32),
+            }
+        )
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=2,
+            indices=np.array([[0], [1], [0]], dtype=np.int64),
+            distances=np.array([[1.0], [0.5], [0.25]]),
+        )
+        container = ServiceContainer(
+            settings=make_settings(query_cache_enabled=True, query_cache_size=4096),
+            embedding_client=embedding_client,
+            vector_index=vector_index,
+            corpus=make_documents(),
+        )
+
+        await container.search(["b", "a", "b"], top_k=1)
+
+        self.assertEqual(embedding_client.requests, [["b", "a"]])
+        np.testing.assert_array_equal(
+            vector_index.last_query_vectors,
+            np.array([[2.0, 20.0], [1.0, 10.0], [2.0, 20.0]], dtype=np.float32),
+        )
+
+    async def test_query_embedding_cache_is_disabled_by_default(self) -> None:
+        embedding_client = FakeEmbeddingClient(
+            {"query": np.array([1.0, 2.0], dtype=np.float32)}
+        )
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=2,
+            indices=np.array([[0]], dtype=np.int64),
+            distances=np.array([[1.0]]),
+        )
+        container = ServiceContainer(
+            settings=make_settings(),
+            embedding_client=embedding_client,
+            vector_index=vector_index,
+            corpus=make_documents(),
+        )
+
+        await container.search(["query"], top_k=1)
+        await container.search(["query"], top_k=1)
+
+        self.assertEqual(embedding_client.requests, [["query"], ["query"]])
+
+    async def test_query_embedding_cache_size_zero_disables_cache(self) -> None:
+        embedding_client = FakeEmbeddingClient(
+            {"query": np.array([1.0, 2.0], dtype=np.float32)}
+        )
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=2,
+            indices=np.array([[0]], dtype=np.int64),
+            distances=np.array([[1.0]]),
+        )
+        container = ServiceContainer(
+            settings=make_settings(query_cache_enabled=True, query_cache_size=0),
+            embedding_client=embedding_client,
+            vector_index=vector_index,
+            corpus=make_documents(),
+        )
+
+        await container.search(["query"], top_k=1)
+        await container.search(["query"], top_k=1)
+
+        self.assertEqual(embedding_client.requests, [["query"], ["query"]])
+
+    async def test_query_embedding_cache_size_can_be_set_by_environment(
+        self,
+    ) -> None:
+        embedding_client = FakeEmbeddingClient(
+            {
+                "a": np.array([1.0, 2.0], dtype=np.float32),
+                "b": np.array([3.0, 4.0], dtype=np.float32),
+            }
+        )
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=2,
+            indices=np.array([[0]], dtype=np.int64),
+            distances=np.array([[1.0]]),
+        )
+
+        with patch.dict(
+            os.environ,
+            {
+                "RET_SERVE_QUERY_CACHE_ENABLED": "true",
+                "RET_SERVE_QUERY_CACHE_SIZE": "1",
+            },
+        ):
+            container = ServiceContainer(
+                settings=make_settings(),
+                embedding_client=embedding_client,
+                vector_index=vector_index,
+                corpus=make_documents(),
+            )
+
+            await container.search(["a"], top_k=1)
+            await container.search(["b"], top_k=1)
+            await container.search(["a"], top_k=1)
+
+        self.assertEqual(embedding_client.requests, [["a"], ["b"], ["a"]])
+
+    async def test_invalid_query_cache_size_environment_raises(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "RET_SERVE_QUERY_CACHE_ENABLED": "true",
+                "RET_SERVE_QUERY_CACHE_SIZE": "invalid",
+            },
+        ):
+            with self.assertRaisesRegex(ValueError, "RET_SERVE_QUERY_CACHE_SIZE"):
+                ServiceContainer(
+                    settings=make_settings(),
+                    embedding_client=FakeEmbeddingClient(
+                        np.array([[1.0, 2.0]], dtype=np.float32)
+                    ),
+                    vector_index=FakeVectorIndex(
+                        dimension=2,
+                        size=2,
+                        indices=np.array([[0]], dtype=np.int64),
+                        distances=np.array([[1.0]]),
+                    ),
+                    corpus=make_documents(),
+                )
 
     async def test_dimension_mismatch_raises_validation_error(self) -> None:
         vector_index = FakeVectorIndex(
@@ -189,6 +382,11 @@ class ServiceContainerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.contents[0][0]["id"], "doc-2")
         self.assertEqual(response.scores, [[0.5]])
+
+        response.contents[0][0]["title"] = "Changed"
+        next_response = await container.search(["query"], top_k=1)
+
+        self.assertEqual(next_response.contents[0][0]["title"], "Title 2")
 
 
 if __name__ == "__main__":

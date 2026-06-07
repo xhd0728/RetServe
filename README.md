@@ -103,6 +103,12 @@ embedding:
 ```
 
 Use the same `url`, `model`, and `normalize` settings for encoding and serving.
+The online query embedding cache is disabled by default. To enable it, set:
+
+```bash
+export RET_SERVE_QUERY_CACHE_ENABLED=true
+export RET_SERVE_QUERY_CACHE_SIZE=4096
+```
 
 ### 2. Generate vectors
 
@@ -205,10 +211,11 @@ scripts/
 
 ## Notes
 
-- `server.max_topk` limits expensive requests.
+- `topk` has no artificial service cap; requests larger than the index return all available indexed documents.
+- The repeated-query embedding cache is off by default. Set `RET_SERVE_QUERY_CACHE_ENABLED=true` to enable it, and set `RET_SERVE_QUERY_CACHE_SIZE` to control the maximum number of cached query embeddings.
 - `index.use_gpu` moves the FAISS index to GPU at service startup when possible.
 - `index.search_concurrency_limit` controls CPU search concurrency; GPU search is serialized for safety.
-- For large corpora, keep `index.mmap: true` and tune `embedding.batch_size`, `embedding.concurrency_limit`, and `index.chunk_size`.
+- For large corpora, keep `index.mmap: true` and tune `embedding.batch_size`, `embedding.concurrency_limit`, `RET_SERVE_QUERY_CACHE_SIZE`, and `index.chunk_size`.
 
 ## Contributing
 

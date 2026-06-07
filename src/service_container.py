@@ -4,9 +4,12 @@ Service container and dependency lifecycle for online retrieval.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
-from typing import Any
+from collections import OrderedDict
+from types import MappingProxyType
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -47,11 +50,17 @@ class ServiceContainer:
         self._embedding_client = embedding_client
         self._vector_index = vector_index
         self._corpus = corpus
-        self._corpus_payloads = tuple(document.model_dump() for document in corpus)
+        self._corpus_payloads: tuple[Mapping[str, Any], ...] = tuple(
+            MappingProxyType(document.model_dump()) for document in corpus
+        )
+        self._query_cache_size = settings.embedding.effective_query_cache_size
+        self._query_embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._query_cache_lock = asyncio.Lock()
 
         logger.info(
             f"ServiceContainer initialized with {len(corpus)} documents, "
-            f"index_dim={vector_index.dimension}"
+            f"index_dim={vector_index.dimension}, "
+            f"query_cache_size={self._query_cache_size}"
         )
 
     @property
@@ -97,8 +106,7 @@ class ServiceContainer:
         """
         effective_top_k = self._resolve_top_k(top_k)
 
-        query_embeddings = await self._embedding_client.embed(queries)
-        query_embeddings = np.ascontiguousarray(query_embeddings, dtype=np.float32)
+        query_embeddings = await self._get_query_embeddings(queries)
 
         if query_embeddings.ndim != 2:
             raise ValueError(
@@ -125,25 +133,69 @@ class ServiceContainer:
         return self._build_search_response(indices, distances)
 
     def _resolve_top_k(self, requested_top_k: int) -> int:
-        """Apply service and index-size limits to top_k."""
-        max_top_k = self._settings.server.max_top_k
-        effective_top_k = min(requested_top_k, max_top_k)
-
-        if requested_top_k > max_top_k:
-            logger.warning(
-                f"Requested top_k={requested_top_k} exceeds max_top_k={max_top_k}, "
-                f"using max_top_k instead"
-            )
-
+        """Limit top_k to the number of indexed vectors."""
         index_size = max(self._vector_index.size, 0)
-        if effective_top_k > index_size:
+        if requested_top_k > index_size:
             logger.warning(
-                f"Requested top_k={effective_top_k} exceeds index_size={index_size}, "
+                f"Requested top_k={requested_top_k} exceeds index_size={index_size}, "
                 "using index_size instead"
             )
-            effective_top_k = index_size
+            return index_size
 
-        return effective_top_k
+        return requested_top_k
+
+    async def _get_query_embeddings(self, queries: list[str]) -> np.ndarray:
+        """Get query embeddings with an optional per-process LRU cache."""
+        if not queries:
+            return np.empty((0, 0), dtype=np.float32)
+
+        if self._query_cache_size <= 0:
+            return await self._embed_queries(queries)
+
+        rows_by_query: dict[str, np.ndarray] = {}
+        missing_queries: list[str] = []
+        missing_seen: set[str] = set()
+
+        async with self._query_cache_lock:
+            for query in queries:
+                cached_row = self._query_embedding_cache.get(query)
+                if cached_row is not None:
+                    self._query_embedding_cache.move_to_end(query)
+                    rows_by_query[query] = cached_row
+                elif query not in missing_seen:
+                    missing_seen.add(query)
+                    missing_queries.append(query)
+
+        if missing_queries:
+            missing_embeddings = await self._embed_queries(missing_queries)
+            if missing_embeddings.shape[0] != len(missing_queries):
+                raise RuntimeError(
+                    "Embedding client returned an unexpected number of query vectors: "
+                    f"got {missing_embeddings.shape[0]}, expected {len(missing_queries)}"
+                )
+
+            for query, row in zip(missing_queries, missing_embeddings):
+                rows_by_query[query] = np.ascontiguousarray(
+                    row, dtype=np.float32
+                ).copy()
+
+            async with self._query_cache_lock:
+                for query in missing_queries:
+                    self._query_embedding_cache[query] = rows_by_query[query]
+                    self._query_embedding_cache.move_to_end(query)
+
+                while len(self._query_embedding_cache) > self._query_cache_size:
+                    self._query_embedding_cache.popitem(last=False)
+
+        return np.ascontiguousarray(
+            np.vstack([rows_by_query[query] for query in queries]),
+            dtype=np.float32,
+        )
+
+    async def _embed_queries(self, queries: list[str]) -> np.ndarray:
+        """Embed queries and normalize the result for FAISS search."""
+        query_embeddings = await self._embedding_client.embed(queries)
+        return np.ascontiguousarray(query_embeddings, dtype=np.float32)
 
     def _build_search_response(
         self,
@@ -174,9 +226,7 @@ class ServiceContainer:
                     continue
 
                 if 0 <= document_index < corpus_size:
-                    current_contents.append(
-                        self._corpus_payloads[document_index].copy()
-                    )
+                    current_contents.append(dict(self._corpus_payloads[document_index]))
                     current_scores.append(float(score))
 
             contents_batch.append(current_contents)

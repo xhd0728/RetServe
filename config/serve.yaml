@@ -2,7 +2,6 @@
 server:
   host: "0.0.0.0"
   port: 8088
-  max_topk: 999
 
 index:
   path: "./data/example_faiss.index"

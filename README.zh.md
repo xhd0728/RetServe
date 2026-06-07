@@ -103,6 +103,12 @@ embedding:
 ```
 
 编码和服务阶段应使用相同的 `url`、`model` 和 `normalize` 设置。
+在线 query embedding 缓存默认关闭。如需开启，可设置：
+
+```bash
+export RET_SERVE_QUERY_CACHE_ENABLED=true
+export RET_SERVE_QUERY_CACHE_SIZE=4096
+```
 
 ### 2. 生成向量
 
@@ -205,10 +211,11 @@ scripts/
 
 ## 运行提示
 
-- `server.max_topk` 用来限制高开销请求。
+- `topk` 没有额外的服务端上限；请求超过索引规模时会返回全部可用索引文档。
+- 重复 query embedding 的进程内缓存默认关闭；设置 `RET_SERVE_QUERY_CACHE_ENABLED=true` 可开启，设置 `RET_SERVE_QUERY_CACHE_SIZE` 可控制最多缓存的 query embedding 数量。
 - `index.use_gpu` 会在服务启动时尝试把 FAISS index 放到 GPU。
 - `index.search_concurrency_limit` 控制 CPU 检索并发；GPU 检索会为了安全串行执行。
-- 大语料建议保持 `index.mmap: true`，并调节 `embedding.batch_size`、`embedding.concurrency_limit` 和 `index.chunk_size`。
+- 大语料建议保持 `index.mmap: true`，并调节 `embedding.batch_size`、`embedding.concurrency_limit`、`RET_SERVE_QUERY_CACHE_SIZE` 和 `index.chunk_size`。
 
 ## 贡献
 

@@ -290,7 +290,7 @@ async def main():
         print_test_summary(test_results)
 
         print("\n" + "=" * 70)
-        print("Testing max_topk soft limit")
+        print("Testing large topk request")
         print("=" * 70)
 
         async with aiohttp.ClientSession() as session:
@@ -300,7 +300,7 @@ async def main():
             url = f"{tester.base_url}/search"
             payload = {
                 "queries": [formatted_query],
-                "topk": 2000,  # This should exceed the configured max_topk of 999
+                "topk": 2000,
             }
 
             headers = {"Content-Type": "application/json"}
@@ -310,10 +310,10 @@ async def main():
             ) as response:
                 if response.status == 200:
                     result = await response.json()
-                    print("✓ Request with topk=2000 succeeded (soft limit working)")
+                    print("✓ Request with topk=2000 succeeded")
                     if result.get("contents"):
                         actual_topk = len(result["contents"][0])
-                        print(f"  Received {actual_topk} results (should be <= 999)")
+                        print(f"  Received {actual_topk} available indexed results")
                 else:
                     print(f"✗ Request failed with status: {response.status}")
                     print(f"  Error: {await response.text()}")

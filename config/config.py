@@ -14,6 +14,8 @@ class EmbeddingConfig(BaseSettings):
     batch_size: int = 128
     concurrency_limit: int = 16
     encode_batch_size: int = 4096
+    query_cache_enabled: bool = False
+    query_cache_size: int = 4096
     request_timeout: float = 120.0
     max_retries: int = 2
     normalize: bool = True
@@ -39,7 +41,6 @@ class ServeConfig(BaseSettings):
     corpus_jsonl_path: str = "./data/example_corpus.jsonl"
     emb_url: str = "http://localhost:8000/v1"
     emb_model: str = "qwen3-embedding-0.6b"
-    max_topk: int = 999
     api_key: str = "None"
     api_key_env: str = "RET_SERVE_EMBED_API_KEY"
     gpu_ids: str = "0"

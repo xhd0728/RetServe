@@ -13,6 +13,44 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+QUERY_CACHE_ENABLED_ENV = "RET_SERVE_QUERY_CACHE_ENABLED"
+QUERY_CACHE_SIZE_ENV = "RET_SERVE_QUERY_CACHE_SIZE"
+_TRUE_ENV_VALUES = {"1", "true", "yes", "on"}
+_FALSE_ENV_VALUES = {"0", "false", "no", "off"}
+
+
+def _resolve_bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in _TRUE_ENV_VALUES:
+        return True
+    if normalized in _FALSE_ENV_VALUES:
+        return False
+
+    raise ValueError(
+        f"Invalid boolean value for {name}: {value!r}. "
+        "Use one of: true, false, 1, 0, yes, no, on, off."
+    )
+
+
+def _resolve_non_negative_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    try:
+        resolved = int(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid integer value for {name}: {value!r}") from exc
+
+    if resolved < 0:
+        raise ValueError(f"{name} must be greater than or equal to 0")
+
+    return resolved
+
 
 class ServerSettings(BaseModel):
     """
@@ -21,14 +59,10 @@ class ServerSettings(BaseModel):
     Attributes:
         host: Server bind address.
         port: Server listen port.
-        max_top_k: Maximum allowed top_k value for search requests.
     """
 
     host: str = Field(default="0.0.0.0", description="Server bind address")
     port: int = Field(default=8088, ge=1, le=65535, description="Server port")
-    max_top_k: int = Field(
-        default=999, ge=1, alias="max_topk", description="Maximum top_k"
-    )
 
     model_config = {
         "populate_by_name": True,
@@ -163,6 +197,15 @@ class EmbeddingSettings(BaseModel):
         ge=1,
         description="Texts per offline streaming write batch",
     )
+    query_cache_enabled: bool = Field(
+        default=False,
+        description="Enable the online query embedding cache",
+    )
+    query_cache_size: int = Field(
+        default=4096,
+        ge=0,
+        description="Maximum cached online query embeddings when caching is enabled",
+    )
 
     model_config = {
         "populate_by_name": True,
@@ -183,6 +226,25 @@ class EmbeddingSettings(BaseModel):
                 return value
 
         return self.api_key
+
+    @property
+    def resolved_query_cache_enabled(self) -> bool:
+        """Resolve query cache enablement from the environment first."""
+        return _resolve_bool_env(QUERY_CACHE_ENABLED_ENV, self.query_cache_enabled)
+
+    @property
+    def resolved_query_cache_size(self) -> int:
+        """Resolve query cache capacity from the environment first."""
+        return _resolve_non_negative_int_env(
+            QUERY_CACHE_SIZE_ENV, self.query_cache_size
+        )
+
+    @property
+    def effective_query_cache_size(self) -> int:
+        """Return zero when the query cache is disabled."""
+        if not self.resolved_query_cache_enabled:
+            return 0
+        return self.resolved_query_cache_size
 
 
 class LoggingSettings(BaseModel):
