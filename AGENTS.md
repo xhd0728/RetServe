@@ -47,7 +47,7 @@ Run these checks after code changes:
 ```bash
 uvx ruff check .
 uvx ruff format --check --diff .
-python -m unittest discover -s test -p 'test_service_units.py'
+python -m unittest discover -s test
 python -m compileall -q src test
 git diff --check
 ```

@@ -135,6 +135,9 @@ export RET_SERVE_QUERY_CACHE_SIZE=4096
 可访问：
 
 - `GET /health`
+- `GET /livez`
+- `GET /readyz`
+- `GET /metrics`
 - `POST /search`
 - `GET /docs`
 
@@ -172,6 +175,13 @@ curl http://localhost:8088/search \
 curl http://localhost:8088/health
 ```
 
+就绪检查和指标：
+
+```bash
+curl http://localhost:8088/readyz
+curl http://localhost:8088/metrics
+```
+
 ## 配置文件
 
 | 文件 | 用途 |
@@ -193,11 +203,15 @@ curl http://localhost:8088/health
 ```text
 src/
   corpus.py             JSONL corpus loader
+  document_store.py     response payload cache
   embedding_client.py   OpenAI-compatible embedding client
   embed.py              JSONL -> .npy pipeline
   index.py              .npy -> FAISS index pipeline
+  metrics.py            lightweight Prometheus metrics
   ret_serve.py          FastAPI app and CLI entry point
-  service_container.py  retrieval lifecycle and search orchestration
+  retrieval.py          online retrieval engine
+  runtime.py            service resource lifecycle
+  service_container.py  compatibility wrapper
   vector_index.py       FAISS-backed vector index
 config/
   embed.yaml
@@ -205,6 +219,7 @@ config/
   serve.yaml
   log.yaml
 scripts/
+  benchmark_search.py
   serve_vllm_cli.sh
   serve_vllm_docker.sh
 ```
@@ -213,9 +228,17 @@ scripts/
 
 - `topk` 没有额外的服务端上限；请求超过索引规模时会返回全部可用索引文档。
 - 重复 query embedding 的进程内缓存默认关闭；设置 `RET_SERVE_QUERY_CACHE_ENABLED=true` 可开启，设置 `RET_SERVE_QUERY_CACHE_SIZE` 可控制最多缓存的 query embedding 数量。
+- 单个请求内的重复 query 会自动去重，即使进程级缓存关闭，也只会 embedding 一次。
 - `index.use_gpu` 会在服务启动时尝试把 FAISS index 放到 GPU。
-- `index.search_concurrency_limit` 控制 CPU 检索并发；GPU 检索会为了安全串行执行。
-- 大语料建议保持 `index.mmap: true`，并调节 `embedding.batch_size`、`embedding.concurrency_limit`、`RET_SERVE_QUERY_CACHE_SIZE` 和 `index.chunk_size`。
+- `index.search_workers` 控制 CPU FAISS 检索并发；GPU 检索会为了安全串行执行。
+- `RET_SERVE__SECTION__FIELD` 环境变量会覆盖 `config/serve.yaml`，例如 `RET_SERVE__INDEX__SEARCH_WORKERS=16`。
+- 大语料建议保持 `index.mmap: true`，并调节 `embedding.batch_size`、`embedding.concurrency_limit`、`index.search_workers`、`RET_SERVE_QUERY_CACHE_SIZE` 和 `index.chunk_size`。
+
+运行本地 benchmark：
+
+```bash
+.venv/bin/python scripts/benchmark_search.py --base-url http://localhost:8088 --path /search
+```
 
 ## 贡献
 

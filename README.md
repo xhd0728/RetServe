@@ -135,6 +135,9 @@ The default index is `IndexFlatIP + IndexIDMap2`. With normalized embeddings, in
 Open:
 
 - `GET /health`
+- `GET /livez`
+- `GET /readyz`
+- `GET /metrics`
 - `POST /search`
 - `GET /docs`
 
@@ -172,6 +175,13 @@ Health check:
 curl http://localhost:8088/health
 ```
 
+Readiness and metrics:
+
+```bash
+curl http://localhost:8088/readyz
+curl http://localhost:8088/metrics
+```
+
 ## Configuration Files
 
 | File | Purpose |
@@ -193,11 +203,15 @@ Important consistency rules:
 ```text
 src/
   corpus.py             JSONL corpus loader
+  document_store.py     response payload cache
   embedding_client.py   OpenAI-compatible embedding client
   embed.py              JSONL -> .npy pipeline
   index.py              .npy -> FAISS index pipeline
+  metrics.py            lightweight Prometheus metrics
   ret_serve.py          FastAPI app and CLI entry point
-  service_container.py  retrieval lifecycle and search orchestration
+  retrieval.py          online retrieval engine
+  runtime.py            service resource lifecycle
+  service_container.py  compatibility wrapper
   vector_index.py       FAISS-backed vector index
 config/
   embed.yaml
@@ -205,6 +219,7 @@ config/
   serve.yaml
   log.yaml
 scripts/
+  benchmark_search.py
   serve_vllm_cli.sh
   serve_vllm_docker.sh
 ```
@@ -213,9 +228,17 @@ scripts/
 
 - `topk` has no artificial service cap; requests larger than the index return all available indexed documents.
 - The repeated-query embedding cache is off by default. Set `RET_SERVE_QUERY_CACHE_ENABLED=true` to enable it, and set `RET_SERVE_QUERY_CACHE_SIZE` to control the maximum number of cached query embeddings.
+- Request-scope query deduplication is always enabled, so repeated queries in the same request are embedded once.
 - `index.use_gpu` moves the FAISS index to GPU at service startup when possible.
-- `index.search_concurrency_limit` controls CPU search concurrency; GPU search is serialized for safety.
-- For large corpora, keep `index.mmap: true` and tune `embedding.batch_size`, `embedding.concurrency_limit`, `RET_SERVE_QUERY_CACHE_SIZE`, and `index.chunk_size`.
+- `index.search_workers` controls CPU FAISS search concurrency; GPU search is serialized for safety.
+- `RET_SERVE__SECTION__FIELD` environment variables override `config/serve.yaml`, for example `RET_SERVE__INDEX__SEARCH_WORKERS=16`.
+- For large corpora, keep `index.mmap: true` and tune `embedding.batch_size`, `embedding.concurrency_limit`, `index.search_workers`, `RET_SERVE_QUERY_CACHE_SIZE`, and `index.chunk_size`.
+
+Run a local benchmark:
+
+```bash
+.venv/bin/python scripts/benchmark_search.py --base-url http://localhost:8088 --path /search
+```
 
 ## Contributing
 
