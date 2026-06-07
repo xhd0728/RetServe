@@ -5,6 +5,7 @@ FAISS-backed vector index implementation for online retrieval.
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import faiss
@@ -30,6 +31,8 @@ class FAISSVectorIndex:
         use_gpu: bool = False,
         gpu_device_ids: str = "0",
         search_concurrency_limit: int = 1,
+        search_workers: int | None = None,
+        omp_threads: int | None = None,
     ) -> None:
         """
         Initialize the vector index.
@@ -39,15 +42,23 @@ class FAISSVectorIndex:
             use_gpu: Whether to use GPU acceleration.
             gpu_device_ids: Comma-separated GPU device IDs.
             search_concurrency_limit: Maximum concurrent search operations.
+            search_workers: Fixed worker count for CPU FAISS search calls.
+            omp_threads: Optional FAISS OpenMP thread count.
         """
         self._index_path = index_path
         self._use_gpu = use_gpu
         self._gpu_device_ids = gpu_device_ids
+        self._cpu_search_workers = search_workers or search_concurrency_limit
+        self._omp_threads = omp_threads
 
         if use_gpu:
             search_concurrency_limit = 1
 
         self._search_semaphore = asyncio.Semaphore(search_concurrency_limit)
+        self._executor = ThreadPoolExecutor(
+            max_workers=search_concurrency_limit,
+            thread_name_prefix="retserve-faiss",
+        )
         self._index: faiss.Index | None = None
         self._gpu_resources: Any | None = None
         self._dimension: int = -1
@@ -85,6 +96,10 @@ class FAISSVectorIndex:
         logger.info(f"Loading FAISS index from {self._index_path}")
 
         try:
+            if self._omp_threads is not None and hasattr(faiss, "omp_set_num_threads"):
+                faiss.omp_set_num_threads(self._omp_threads)
+                logger.info(f"Set FAISS OMP threads to {self._omp_threads}")
+
             self._index = faiss.read_index(self._index_path)
             self._dimension = self._index.d
 
@@ -128,7 +143,16 @@ class FAISSVectorIndex:
             logger.info("Falling back to CPU index")
             self._use_gpu = False
             self._gpu_resources = None
-            self._search_semaphore = asyncio.Semaphore(128)
+            self._replace_search_executor(self._cpu_search_workers)
+
+    def _replace_search_executor(self, workers: int) -> None:
+        """Replace search concurrency controls after backend changes."""
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._search_semaphore = asyncio.Semaphore(workers)
+        self._executor = ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="retserve-faiss",
+        )
 
     @measure_time(threshold_ms=50)
     async def search(
@@ -155,4 +179,14 @@ class FAISSVectorIndex:
             logger.debug(
                 f"Searching index: num_queries={query_vectors.shape[0]}, top_k={top_k}"
             )
-            return await asyncio.to_thread(self._index.search, query_vectors, top_k)
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self._executor,
+                self._index.search,
+                query_vectors,
+                top_k,
+            )
+
+    def close(self) -> None:
+        """Release search executor resources."""
+        self._executor.shutdown(wait=False, cancel_futures=True)

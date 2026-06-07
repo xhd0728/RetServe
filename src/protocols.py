@@ -96,6 +96,10 @@ class VectorIndex(Protocol):
         ...
 
 
+VectorIndexBackend = VectorIndex
+"""Alias for pluggable online vector search backends."""
+
+
 @runtime_checkable
 class CorpusLoader(Protocol):
     """

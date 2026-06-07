@@ -100,9 +100,20 @@ class IndexSettings(BaseModel):
     )
     search_concurrency_limit: int = Field(
         default=128,
+        alias="search_workers",
         ge=1,
         description="Maximum concurrent FAISS search calls for CPU indexes",
     )
+    omp_threads: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional FAISS OpenMP thread count",
+    )
+
+    @property
+    def search_workers(self) -> int:
+        """Return the configured search worker count."""
+        return self.search_concurrency_limit
 
     @property
     def index_path(self) -> Path:
@@ -286,6 +297,17 @@ class LoggingSettings(BaseModel):
     }
 
 
+class MetricsSettings(BaseModel):
+    """Metrics endpoint configuration settings."""
+
+    enabled: bool = Field(default=True, description="Enable in-process metrics")
+
+    model_config = {
+        "populate_by_name": True,
+        "extra": "ignore",
+    }
+
+
 class ServiceSettings(BaseModel):
     """
     Complete service configuration combining all settings.
@@ -301,6 +323,7 @@ class ServiceSettings(BaseModel):
     index: IndexSettings
     data: DataSettings = Field(default_factory=DataSettings)
     embedding: EmbeddingSettings
+    metrics: MetricsSettings = Field(default_factory=MetricsSettings)
 
     @classmethod
     def from_dict(cls, config: dict[str, Any]) -> "ServiceSettings":
@@ -318,6 +341,7 @@ class ServiceSettings(BaseModel):
             index=IndexSettings(**config.get("index", {})),
             data=DataSettings(**config.get("data", {})),
             embedding=EmbeddingSettings(**config.get("embedding", {})),
+            metrics=MetricsSettings(**config.get("metrics", {})),
         )
 
     model_config = {

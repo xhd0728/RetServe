@@ -260,6 +260,34 @@ class ServiceContainerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(embedding_client.requests, [["query"], ["query"]])
 
+    async def test_request_scope_dedupes_queries_when_cache_is_disabled(self) -> None:
+        embedding_client = FakeEmbeddingClient(
+            {
+                "query": np.array([1.0, 2.0], dtype=np.float32),
+                "other": np.array([3.0, 4.0], dtype=np.float32),
+            }
+        )
+        vector_index = FakeVectorIndex(
+            dimension=2,
+            size=2,
+            indices=np.array([[0], [1], [0]], dtype=np.int64),
+            distances=np.array([[1.0], [0.5], [0.25]]),
+        )
+        container = ServiceContainer(
+            settings=make_settings(),
+            embedding_client=embedding_client,
+            vector_index=vector_index,
+            corpus=make_documents(),
+        )
+
+        await container.search(["query", "other", "query"], top_k=1)
+
+        self.assertEqual(embedding_client.requests, [["query", "other"]])
+        np.testing.assert_array_equal(
+            vector_index.last_query_vectors,
+            np.array([[1.0, 2.0], [3.0, 4.0], [1.0, 2.0]], dtype=np.float32),
+        )
+
     async def test_query_embedding_cache_size_zero_disables_cache(self) -> None:
         embedding_client = FakeEmbeddingClient(
             {"query": np.array([1.0, 2.0], dtype=np.float32)}
