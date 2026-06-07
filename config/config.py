@@ -45,6 +45,8 @@ class ServeConfig(BaseSettings):
     api_key_env: str = "RET_SERVE_EMBED_API_KEY"
     gpu_ids: str = "0"
     use_gpu: bool = False
+    search_workers: int = 128
+    omp_threads: int | None = None
     port: int = 8000
     host: str = "0.0.0.0"
 
@@ -72,8 +74,18 @@ class LogConfig(BaseSettings):
         env_prefix = "LOG_"
 
 
+class MetricsConfig(BaseSettings):
+    """Metrics endpoint configuration."""
+
+    enabled: bool = True
+
+    class Config:
+        env_prefix = "METRICS_"
+
+
 emb_config = EmbeddingConfig()
 index_config = IndexConfig()
 serve_config = ServeConfig()
 data_config = DataConfig()
 log_config = LogConfig()
+metrics_config = MetricsConfig()

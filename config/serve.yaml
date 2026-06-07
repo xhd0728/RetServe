@@ -7,7 +7,8 @@ index:
   path: "./data/example_faiss.index"
   use_gpu: false
   gpu_ids: "0"
-  search_concurrency_limit: 128
+  search_workers: 128
+  omp_threads: null
 
 data:
   corpus_path: "./data/example_corpus.jsonl"
@@ -22,3 +23,6 @@ embedding:
   request_timeout: 60.0
   max_retries: 2
   normalize: true
+
+metrics:
+  enabled: true

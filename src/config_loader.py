@@ -7,6 +7,7 @@ YAML files and converts them to type-safe settings objects.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -118,6 +119,7 @@ class ConfigLoader:
             ServiceSettings instance.
         """
         raw_config = self.load_raw(config_name)
+        self._apply_env_overrides(raw_config, prefix="RET_SERVE")
         return ServiceSettings.from_dict(raw_config)
 
     def load_embed_settings(self, config_name: str = "embed") -> EmbedSettings:
@@ -174,6 +176,36 @@ class ConfigLoader:
             Configuration dictionary.
         """
         return self.load_raw(config_name)
+
+    def _apply_env_overrides(self, config: dict[str, Any], prefix: str) -> None:
+        """Apply nested environment overrides in PREFIX__SECTION__FIELD form."""
+        env_prefix = f"{prefix}__"
+        for name, value in os.environ.items():
+            if not name.startswith(env_prefix):
+                continue
+
+            path = [part.lower() for part in name[len(env_prefix) :].split("__")]
+            if not path or any(part == "" for part in path):
+                continue
+
+            current = config
+            for part in path[:-1]:
+                next_value = current.setdefault(part, {})
+                if not isinstance(next_value, dict):
+                    next_value = {}
+                    current[part] = next_value
+                current = next_value
+
+            current[path[-1]] = self._parse_env_value(value)
+
+    @staticmethod
+    def _parse_env_value(value: str) -> Any:
+        """Parse environment values using YAML scalar rules."""
+        try:
+            parsed = yaml.safe_load(value)
+        except yaml.YAMLError:
+            return value
+        return value if parsed is None and value != "" else parsed
 
 
 config_loader = ConfigLoader()

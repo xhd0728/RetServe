@@ -6,15 +6,23 @@ import argparse
 from contextlib import asynccontextmanager
 from importlib.util import find_spec
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from src.config_loader import config_loader
 from src.corpus import JSONLCorpusLoader
+from src.errors import (
+    EmbeddingDimensionError,
+    EmbeddingUpstreamError,
+    IndexNotReadyError,
+    RetrievalExecutionError,
+)
 from src.logging import get_logger
+from src.runtime import RetServeRuntime
 from src.service_container import (
     ServiceContainer,
     close_service,
+    get_runtime,
     get_service_container,
     initialize_service,
 )
@@ -28,9 +36,11 @@ __all__ = [
     "FAISSVectorIndex",
     "JSONLCorpusLoader",
     "ServiceContainer",
+    "RetServeRuntime",
     "close_service",
     "create_application",
     "get_service_container",
+    "get_runtime",
     "initialize_service",
     "main",
     "parse_arguments",
@@ -52,10 +62,12 @@ def create_application(settings: ServiceSettings) -> FastAPI:
     async def lifespan(app: FastAPI):
         """Application lifespan manager."""
         initialize_service(settings)
+        app.state.runtime = get_runtime()
         try:
             yield
         finally:
             await close_service()
+            app.state.runtime = None
             logger.info("Shutting down retrieval service")
 
     app = FastAPI(
@@ -76,6 +88,13 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         """Redirect root path to the interactive API docs."""
         return RedirectResponse(url="/docs")
 
+    def get_app_runtime(request: Request) -> RetServeRuntime:
+        """Return the runtime stored on application state."""
+        runtime = getattr(request.app.state, "runtime", None)
+        if runtime is None:
+            raise HTTPException(status_code=503, detail="service not ready")
+        return runtime
+
     @app.get(
         "/health",
         response_model=HealthResponse,
@@ -83,7 +102,7 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         description="Check service health and get system information.",
     )
     def check_health(
-        container: ServiceContainer = Depends(get_service_container),
+        runtime: RetServeRuntime = Depends(get_app_runtime),
     ) -> HealthResponse:
         """
         Health check endpoint.
@@ -92,11 +111,40 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         """
         return HealthResponse(
             status="ok",
-            index_dimension=container.vector_index.dimension,
-            corpus_size=container.corpus_size,
-            embedding_url=container.settings.embedding.base_url,
-            embedding_model=container.settings.embedding.model_name,
-            gpu_enabled=container.settings.index.use_gpu,
+            index_dimension=runtime.vector_index.dimension,
+            corpus_size=runtime.corpus_size,
+            embedding_url=runtime.settings.embedding.base_url,
+            embedding_model=runtime.settings.embedding.model_name,
+            gpu_enabled=runtime.settings.index.use_gpu,
+        )
+
+    @app.get("/livez", summary="Liveness Check")
+    def check_liveness() -> dict[str, str]:
+        """Return process liveness."""
+        return {"status": "ok"}
+
+    @app.get("/readyz", summary="Readiness Check")
+    def check_readiness(
+        runtime: RetServeRuntime = Depends(get_app_runtime),
+    ) -> dict[str, object]:
+        """Return readiness for search traffic."""
+        if not runtime.ready:
+            raise HTTPException(status_code=503, detail="service not ready")
+        return {
+            "status": "ready",
+            "index_dim": runtime.vector_index.dimension,
+            "index_size": runtime.vector_index.size,
+            "corpus_size": runtime.corpus_size,
+        }
+
+    @app.get("/metrics", response_class=PlainTextResponse, summary="Metrics")
+    def get_metrics(
+        runtime: RetServeRuntime = Depends(get_app_runtime),
+    ) -> PlainTextResponse:
+        """Return Prometheus text metrics."""
+        return PlainTextResponse(
+            runtime.render_metrics(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
     @app.post(
@@ -107,7 +155,7 @@ def create_application(settings: ServiceSettings) -> FastAPI:
     )
     async def perform_search(
         request: SearchRequest,
-        container: ServiceContainer = Depends(get_service_container),
+        runtime: RetServeRuntime = Depends(get_app_runtime),
     ) -> SearchResponse:
         """
         Perform vector similarity search.
@@ -118,19 +166,35 @@ def create_application(settings: ServiceSettings) -> FastAPI:
         Returns:
             Search results with matched documents and scores.
         """
-        try:
-            return await container.search(
-                queries=request.queries,
-                top_k=request.top_k,
-            )
-        except ValueError as exc:
-            logger.error(f"Search validation error: {exc}")
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception(f"Search error: {exc}")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return await _search_or_raise(request, runtime)
 
     return app
+
+
+async def _search_or_raise(
+    request: SearchRequest,
+    runtime: RetServeRuntime,
+) -> SearchResponse:
+    """Run search and map typed errors to stable HTTP responses."""
+    try:
+        return await runtime.search(
+            queries=request.queries,
+            top_k=request.top_k,
+        )
+    except EmbeddingDimensionError as exc:
+        logger.error(f"Search validation error: {exc}")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except EmbeddingUpstreamError as exc:
+        logger.error("Embedding provider error during search")
+        raise HTTPException(status_code=502, detail="embedding provider error") from exc
+    except IndexNotReadyError as exc:
+        logger.error("Index not ready during search")
+        raise HTTPException(status_code=503, detail="index not ready") from exc
+    except RetrievalExecutionError as exc:
+        logger.error("Retrieval execution error")
+        raise HTTPException(
+            status_code=500, detail="retrieval execution error"
+        ) from exc
 
 
 def get_uvicorn_runtime_options() -> dict[str, str]:
