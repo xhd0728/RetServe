@@ -10,7 +10,7 @@ authors = [
 ]
 dependencies = [
   "faiss-gpu-cu12>=1.14.1.post1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-  "faiss-cpu>=1.14.2; sys_platform != 'linux' or platform_machine != 'x86_64'",
+  "faiss-cpu>=1.14.3; sys_platform != 'linux' or platform_machine != 'x86_64'",
   "numpy>=1.21.0",
   "jsonlines>=3.1.0",
   "tqdm>=4.65.0",
