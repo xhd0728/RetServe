@@ -34,7 +34,7 @@ package = false
 
 [dependency-groups]
 dev = [
-  "ruff>=0.15.16,<0.16.0",
+  "ruff>=0.15.17,<0.16.0",
 ]
 
 [tool.ruff]
