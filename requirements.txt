@@ -29,4 +29,4 @@ typing-extensions>=4.6.0
 
 # Load-testing scripts
 requests>=2.31.0
-aiohttp>=3.9.0
+aiohttp>=3.14.1
