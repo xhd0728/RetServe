@@ -5,6 +5,7 @@ FAISS-backed vector index implementation for online retrieval.
 from __future__ import annotations
 
 import asyncio
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -60,7 +61,7 @@ class FAISSVectorIndex:
             thread_name_prefix="retserve-faiss",
         )
         self._index: faiss.Index | None = None
-        self._gpu_resources: Any | None = None
+        self._gpu_resources: list[Any] | None = None
         self._dimension: int = -1
 
         logger.info(
@@ -117,26 +118,47 @@ class FAISSVectorIndex:
 
     def _move_to_gpu(self) -> None:
         """
-        Move the index to GPU.
+        Move the index to one GPU or shard it across multiple GPUs.
 
         Falls back to CPU if GPU initialization fails.
         """
         try:
+            physical_ids, logical_ids = self._resolve_gpu_device_ids()
             logger.info(
-                f"Moving index to GPU (CUDA_VISIBLE_DEVICES={self._gpu_device_ids})"
+                f"Moving index to {len(logical_ids)} GPU(s): "
+                f"configured_ids={physical_ids}, logical_ids={logical_ids}"
             )
 
-            self._gpu_resources = faiss.StandardGpuResources()
-            logger.debug("GPU resources initialized")
+            resources = [faiss.StandardGpuResources() for _ in logical_ids]
+            logger.debug(f"Initialized {len(resources)} GPU resource object(s)")
 
-            gpu_options = faiss.GpuClonerOptions()
-            gpu_options.useFloat16 = True
+            if len(logical_ids) == 1:
+                gpu_options = faiss.GpuClonerOptions()
+                gpu_options.useFloat16 = True
+                gpu_index = faiss.index_cpu_to_gpu(
+                    resources[0],
+                    logical_ids[0],
+                    self._index,
+                    gpu_options,
+                )
+            else:
+                gpu_options = faiss.GpuMultipleClonerOptions()
+                gpu_options.shard = True
+                gpu_options.useFloat16 = True
+                gpu_index = faiss.index_cpu_to_gpu_multiple_py(
+                    resources,
+                    self._index,
+                    co=gpu_options,
+                    gpus=logical_ids,
+                )
 
-            self._index = faiss.index_cpu_to_gpu(
-                self._gpu_resources, 0, self._index, gpu_options
-            )
+            self._gpu_resources = resources
+            self._index = gpu_index
 
-            logger.info("Index successfully moved to GPU")
+            if len(logical_ids) == 1:
+                logger.info(f"Index successfully moved to GPU {physical_ids[0]}")
+            else:
+                logger.info(f"Index successfully sharded across GPUs {physical_ids}")
 
         except Exception as exc:
             logger.warning(f"Failed to move index to GPU: {exc}")
@@ -144,6 +166,54 @@ class FAISSVectorIndex:
             self._use_gpu = False
             self._gpu_resources = None
             self._replace_search_executor(self._cpu_search_workers)
+
+    def _resolve_gpu_device_ids(self) -> tuple[list[int], list[int]]:
+        """Resolve configured physical IDs to the IDs visible to FAISS."""
+        physical_ids = self._parse_gpu_device_ids()
+        available_gpu_count = faiss.get_num_gpus()
+        if available_gpu_count == 0:
+            raise RuntimeError("FAISS did not detect any CUDA GPUs")
+
+        visible_ids = os.environ.get("CUDA_VISIBLE_DEVICES")
+        visible_physical_ids: list[int] | None = None
+        if visible_ids:
+            try:
+                visible_physical_ids = self._parse_gpu_device_ids(visible_ids)
+            except ValueError:
+                logger.debug("CUDA_VISIBLE_DEVICES uses non-numeric device identifiers")
+
+        if visible_physical_ids == physical_ids and available_gpu_count == len(
+            physical_ids
+        ):
+            logical_ids = list(range(len(physical_ids)))
+        elif all(device_id < available_gpu_count for device_id in physical_ids):
+            logical_ids = physical_ids
+        else:
+            raise RuntimeError(
+                f"Configured GPUs {physical_ids} are not available; "
+                f"FAISS detected {available_gpu_count} visible GPU(s)"
+            )
+
+        return physical_ids, logical_ids
+
+    def _parse_gpu_device_ids(self, value: str | None = None) -> list[int]:
+        """Parse and validate a comma-separated GPU ID list."""
+        raw_value = self._gpu_device_ids if value is None else value
+        tokens = [token.strip() for token in raw_value.split(",") if token.strip()]
+        if not tokens:
+            raise ValueError("At least one GPU device ID must be configured")
+
+        try:
+            device_ids = [int(token) for token in tokens]
+        except ValueError as exc:
+            raise ValueError(f"Invalid GPU device IDs: {raw_value!r}") from exc
+
+        if any(device_id < 0 for device_id in device_ids):
+            raise ValueError("GPU device IDs must be non-negative")
+        if len(set(device_ids)) != len(device_ids):
+            raise ValueError(f"Duplicate GPU device IDs: {raw_value!r}")
+
+        return device_ids
 
     def _replace_search_executor(self, workers: int) -> None:
         """Replace search concurrency controls after backend changes."""
