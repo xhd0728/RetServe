@@ -230,6 +230,8 @@ scripts/
 - The repeated-query embedding cache is off by default. Set `RET_SERVE_QUERY_CACHE_ENABLED=true` to enable it, and set `RET_SERVE_QUERY_CACHE_SIZE` to control the maximum number of cached query embeddings.
 - Request-scope query deduplication is always enabled, so repeated queries in the same request are embedded once.
 - `index.use_gpu` moves the FAISS index to GPU at service startup when possible.
+  Multiple `index.gpu_ids` values, such as `"1,5"`, shard the index across those
+  GPUs instead of replicating the full index on every device.
 - `index.search_workers` controls CPU FAISS search concurrency; GPU search is serialized for safety.
 - `RET_SERVE__SECTION__FIELD` environment variables override `config/serve.yaml`, for example `RET_SERVE__INDEX__SEARCH_WORKERS=16`.
 - For large corpora, keep `index.mmap: true` and tune `embedding.batch_size`, `embedding.concurrency_limit`, `index.search_workers`, `RET_SERVE_QUERY_CACHE_SIZE`, and `index.chunk_size`.
