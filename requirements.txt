@@ -5,7 +5,7 @@ faiss-cpu>=1.14.2; sys_platform != "linux" or platform_machine != "x86_64"
 # Data processing
 numpy>=1.21.0
 jsonlines>=3.1.0
-tqdm>=4.65.0
+tqdm>=4.68.2
 orjson>=3.9.0
 
 # Web services
