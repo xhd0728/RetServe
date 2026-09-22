@@ -1,3 +1,5 @@
+
+
 <div align="center">
   <img src="assets/logo.png" alt="RetServe logo" width="80%">
 
@@ -73,7 +75,7 @@ Run vLLM with Docker:
 bash scripts/serve_vllm_docker.sh
 ```
 
-Edit the placeholder model path in the script before running it. Both scripts expose the OpenAI-compatible server on port `8000` by default. Then set the RetServe embedding URL to `http://localhost:8000/v1`.
+Edit the placeholder model path in the script before running it. Both scripts expose the OpenAI-compatible server on port `8000` by default. Then set the RetServe embedding URL to `http://localhost:8000/v1` and set `model` to `qwen3-emb`, the `--served-model-name` used by the scripts.
 
 ## Corpus Format
 
